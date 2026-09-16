@@ -16,12 +16,11 @@ permissions:
 
 jobs:
   windows:
-    runs-on: windows-latest
+    # windows-latest is currently windows-2025 + VS 18; node-gyp cannot parse VS 18 yet
+    runs-on: windows-2022
     timeout-minutes: 360
     env:
-      # Lets @vscode/ripgrep hit GitHub API without anonymous rate limits
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      npm_config_msvs_version: '2022'
     steps:
       - uses: actions/checkout@v4
 
@@ -33,7 +32,6 @@ jobs:
         with:
           python-version: '3.11'
 
-      # Puts cl/link/msbuild on PATH for node-gyp (fixes VS 18 discovery issues)
       - name: Setup MSVC environment
         uses: ilammy/msvc-dev-cmd@v1
         with:

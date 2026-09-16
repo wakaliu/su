@@ -74,9 +74,19 @@ if (-not (Test-Path $Vendor)) {
 Write-Host "==> build-win (this can take a long time)"
 Import-VcVars64
 
-# Help node-gyp on newer VS (e.g. VS 18 / 2022) when version probing is flaky
+# Help node-gyp pick a known VS generation. Do NOT force 2022 on VS 18 runners
+# (node-gyp currently reports unknown version "undefined" for VS 18).
 if (-not $env:npm_config_msvs_version) {
-  $env:npm_config_msvs_version = '2022'
+  if ($env:VSINSTALLDIR -match '\\2022\\') {
+    $env:npm_config_msvs_version = '2022'
+  } elseif ($env:VSINSTALLDIR -match '\\2019\\') {
+    $env:npm_config_msvs_version = '2019'
+  }
+  if ($env:npm_config_msvs_version) {
+    Write-Host "==> npm_config_msvs_version=$env:npm_config_msvs_version"
+  } else {
+    Write-Host "==> leave npm_config_msvs_version unset (VSINSTALLDIR=$env:VSINSTALLDIR)"
+  }
 }
 if ($env:PythonLocation) {
   $env:npm_config_python = (Join-Path $env:PythonLocation 'python.exe')
