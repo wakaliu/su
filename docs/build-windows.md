@@ -87,6 +87,13 @@ npm run compile
 
 然后在仓库根目录重跑：`.\scripts\build-win.ps1`
 
-> 若 Installer 已勾选但仍找不到 `lib\spectre\x64`：`build-win.ps1` 会通过 `scripts/disable-spectre.props`（`ForceImportBeforeCppTargets`）在本机关闭 SpectreMitigation，以便个人开发继续出包。正式发布机仍建议装齐 Spectre 库。
+### 本机工具链不完整时（推荐改走 CI）
+
+若 `npm ci` 继续出现 `LNK1181: delayimp.lib` 等链接错误，说明 VS C++/Windows SDK 组件不完整。个人开发机可：
+
+1. VS Installer → 修改 → 工作负载勾选「使用 C++ 的桌面开发」并确保含 Windows 10/11 SDK
+2. **或直接用 GitHub Actions**：仓库 Actions → workflow **`build-win`** → Run workflow（基于 `windows-latest` 完整工具链出包）
+
+Agent 侧约定：骨架与脚本在 `develop` 交付；全量 Windows 安装包以 CI artifact 或本机修好工具链后的 `out/su-win32-x64-*.zip` 为准。
 
 | Tee-Object 写错目录 | 日志请用绝对路径，例如 `$log = "$PWD\out\build-win.log"` |
