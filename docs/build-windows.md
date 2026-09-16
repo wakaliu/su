@@ -87,6 +87,6 @@ npm run compile
 
 然后在仓库根目录重跑：`.\scripts\build-win.ps1`
 
-> Agent 无法在未授权 UAC 的情况下替你完成安装；需你本机点允许或走安装器 GUI。
+> 若 Installer 已勾选但仍找不到 `lib\spectre\x64`：`build-win.ps1` 会通过 `scripts/disable-spectre.props`（`ForceImportBeforeCppTargets`）在本机关闭 SpectreMitigation，以便个人开发继续出包。正式发布机仍建议装齐 Spectre 库。
 
 | Tee-Object 写错目录 | 日志请用绝对路径，例如 `$log = "$PWD\out\build-win.log"` |

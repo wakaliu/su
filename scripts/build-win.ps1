@@ -29,6 +29,13 @@ if (-not (Test-Path $Vendor)) {
 }
 
 Write-Host "==> build-win (this can take a long time)"
+# Bypass MSB8040 when Spectre libs are not installed (personal/dev machines)
+$spectreProps = Join-Path $PSScriptRoot 'disable-spectre.props'
+if (Test-Path $spectreProps) {
+  $env:ForceImportBeforeCppTargets = $spectreProps
+  Write-Host "==> ForceImportBeforeCppTargets=$spectreProps (SpectreMitigation=false)"
+}
+
 Push-Location $Vendor
 try {
   # Prefer .bin shim — package folder alone can exist after a broken/partial install
