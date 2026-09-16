@@ -34,6 +34,8 @@ function Invoke-Gulp {
   Write-Host "==> gulp ($($Tasks -join ' ')) heap=${heapMb}MB"
   Invoke-Native node --experimental-strip-types "--max-old-space-size=$heapMb" .\node_modules\gulp\bin\gulp.js @Tasks
 }
+
+function Import-VcVars64 {
   $candidates = New-Object System.Collections.Generic.List[string]
 
   $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
