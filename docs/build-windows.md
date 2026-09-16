@@ -51,3 +51,5 @@ npm run compile
 | node-gyp / native 模块失败 | 确认 Python、Windows SDK |
 | 内存不足 | 关闭其它应用；勿并行多个完整构建 |
 | vendor 为空 | 先跑 `bootstrap.ps1` |
+| PowerShell 因 npm warn 中断 | 已用 `Invoke-Native` 忽略 stderr 警告；请拉取最新 `scripts/*.ps1` |
+| Agent 环境无 GitHub SSH | 由你本机手动 `git push`（约定） |

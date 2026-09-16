@@ -9,6 +9,23 @@ $Vendor = Join-Path $Root 'vendor\vscode'
 $Tag = '1.136.1'
 $Repo = 'https://github.com/microsoft/vscode.git'
 
+function Invoke-Native {
+  param(
+    [Parameter(Mandatory = $true)][string]$FilePath,
+    [Parameter(ValueFromRemainingArguments = $true)][string[]]$ArgumentList
+  )
+  $prev = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    & $FilePath @ArgumentList
+    if ($LASTEXITCODE -ne 0) {
+      throw "Command failed ($LASTEXITCODE): $FilePath $($ArgumentList -join ' ')"
+    }
+  } finally {
+    $ErrorActionPreference = $prev
+  }
+}
+
 Write-Host "==> su bootstrap (tag $Tag)"
 
 if (-not (Test-Path (Join-Path $Vendor '.git'))) {
@@ -17,7 +34,7 @@ if (-not (Test-Path (Join-Path $Vendor '.git'))) {
     Remove-Item -Recurse -Force $Vendor
   }
   Write-Host "==> cloning $Repo @ $Tag (shallow)"
-  git clone --depth 1 --branch $Tag $Repo $Vendor
+  Invoke-Native git clone --depth 1 --branch $Tag $Repo $Vendor
 } else {
   Push-Location $Vendor
   $current = (git describe --tags --exact-match 2>$null)
