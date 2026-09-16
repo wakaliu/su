@@ -24,7 +24,16 @@ function Invoke-Native {
   }
 }
 
-function Import-VcVars64 {
+function Invoke-Gulp {
+  param(
+    [Parameter(Mandatory = $true)][string[]]$Tasks
+  )
+  # package.json "gulp" hardcodes --max-old-space-size=8192 which OOMs on vscode 1.136
+  # production compile; call gulp.js directly with a larger heap (GH windows runners ~16GB).
+  $heapMb = if ($env:SU_NODE_HEAP_MB) { $env:SU_NODE_HEAP_MB } else { '14336' }
+  Write-Host "==> gulp ($($Tasks -join ' ')) heap=${heapMb}MB"
+  Invoke-Native node --experimental-strip-types "--max-old-space-size=$heapMb" .\node_modules\gulp\bin\gulp.js @Tasks
+}
   $candidates = New-Object System.Collections.Generic.List[string]
 
   $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
@@ -150,12 +159,12 @@ try {
   # Skip compile-copilot (Microsoft-only chat extension) for OSS packaging
   Write-Host "==> compile-client (skip compile-copilot)"
   Invoke-Native npm run compile-client
-  Invoke-Native npm run gulp -- compile-build-without-mangling
-  Invoke-Native npm run gulp -- compile-extensions-build
-  Invoke-Native npm run gulp -- compile-extension-media
+  Invoke-Gulp compile-build-without-mangling
+  Invoke-Gulp compile-extensions-build
+  Invoke-Gulp compile-extension-media
 
   Write-Host "==> gulp vscode-win32-x64-min-ci"
-  Invoke-Native npm run gulp -- vscode-win32-x64-min-ci
+  Invoke-Gulp vscode-win32-x64-min-ci
 } finally {
   Pop-Location
 }
