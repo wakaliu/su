@@ -24,21 +24,50 @@ function Invoke-Native {
   }
 }
 
+function Import-VcVars64 {
+  $candidates = @(
+    'G:\6\VS2019\Community\VC\Auxiliary\Build\vcvars64.bat',
+    "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build\vcvars64.bat",
+    "${env:ProgramFiles}\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat",
+    "${env:ProgramFiles}\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
+  )
+  $vcvars = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+  if (-not $vcvars) {
+    Write-Host "==> vcvars64.bat not found; relying on existing PATH"
+    return
+  }
+  Write-Host "==> import $vcvars"
+  $prev = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  cmd /c "`"$vcvars`" && set" | ForEach-Object {
+    if ($_ -match '^(.*?)=(.*)$') {
+      Set-Item -Path "env:$($matches[1])" -Value $matches[2]
+    }
+  }
+  $ErrorActionPreference = $prev
+}
+
 if (-not (Test-Path $Vendor)) {
   throw "Run .\scripts\bootstrap.ps1 first"
 }
 
 Write-Host "==> build-win (this can take a long time)"
-# Bypass MSB8040 when Spectre libs are not installed (personal/dev machines)
-$spectreProps = Join-Path $PSScriptRoot 'disable-spectre.props'
-if (Test-Path $spectreProps) {
-  $env:ForceImportBeforeCppTargets = $spectreProps
-  Write-Host "==> ForceImportBeforeCppTargets=$spectreProps (SpectreMitigation=false)"
+Import-VcVars64
+
+$spectreLib = 'G:\6\VS2019\Community\VC\Tools\MSVC\14.29.30133\lib\spectre\x64'
+if (-not (Test-Path $spectreLib)) {
+  $spectreProps = Join-Path $PSScriptRoot 'disable-spectre.props'
+  if (Test-Path $spectreProps) {
+    $env:ForceImportBeforeCppTargets = $spectreProps
+    Write-Host "==> Spectre libs missing; using $spectreProps"
+  }
+} else {
+  Remove-Item Env:ForceImportBeforeCppTargets -ErrorAction SilentlyContinue
+  Write-Host "==> Spectre libs found at $spectreLib"
 }
 
 Push-Location $Vendor
 try {
-  # Prefer .bin shim — package folder alone can exist after a broken/partial install
   $depsOk = (Test-Path 'node_modules\.bin\npm-run-all2.cmd') -or (Test-Path 'node_modules\.bin\npm-run-all2')
   if (-not $depsOk) {
     Write-Host "==> npm ci (full vscode deps; may take 10-40+ minutes)"
