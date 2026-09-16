@@ -1,0 +1,47 @@
+name: build-win
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [develop]
+    paths:
+      - 'extensions/su-ai/**'
+      - 'branding/**'
+      - 'scripts/**'
+      - 'patches/**'
+      - '.github/workflows/build-win.yml'
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Bootstrap upstream + branding
+        shell: pwsh
+        run: .\scripts\bootstrap.ps1
+
+      - name: Build win32-x64
+        shell: pwsh
+        run: .\scripts\build-win.ps1
+
+      - name: Package
+        shell: pwsh
+        run: .\scripts\package-win.ps1
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: su-win32-x64
+          path: out/**
+          if-no-files-found: warn
+          retention-days: 14

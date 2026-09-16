@@ -1,0 +1,12 @@
+---
+description: patches 最小可 rebase 约定
+globs: patches/**
+alwaysApply: false
+---
+
+# patches
+
+- 每个改动标记 `// [su]`。
+- 新增/修改补丁必须更新 `docs/modules/patches.INDEX.md`（目的、文件、验证）。
+- 优先扩展 API；确认不够用再打 core patch。
+- 保持补丁小、意图单一，便于升 upstream tag。

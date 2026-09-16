@@ -1,0 +1,12 @@
+vendor/vscode/
+extensions/su-ai/node_modules/
+extensions/su-ai/out/
+out/
+dist/
+*.vsix
+.DS_Store
+Thumbs.db
+*.log
+.env
+.env.*
+!.env.example

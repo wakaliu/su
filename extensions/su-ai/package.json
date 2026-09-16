@@ -1,0 +1,59 @@
+{
+  "name": "su-ai",
+  "displayName": "Su AI",
+  "description": "Built-in AI assistant for su editor (OpenAI-compatible models).",
+  "version": "0.1.0",
+  "publisher": "su",
+  "engines": {
+    "vscode": "^1.136.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "su.openSettings",
+        "title": "Su: Open Settings"
+      }
+    ],
+    "configuration": {
+      "title": "Su",
+      "properties": {
+        "su.baseUrl": {
+          "type": "string",
+          "default": "https://api.openai.com/v1",
+          "description": "OpenAI-compatible API base URL (supports relay/proxy endpoints)."
+        },
+        "su.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key (v0.1 placeholder; v0.2 will prefer SecretStorage)."
+        },
+        "su.model": {
+          "type": "string",
+          "default": "gpt-4o-mini",
+          "description": "Model name sent to the compatible API."
+        },
+        "su.timeoutMs": {
+          "type": "number",
+          "default": 60000,
+          "description": "Request timeout in milliseconds."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.136.0",
+    "typescript": "^5.7.2"
+  }
+}

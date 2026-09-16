@@ -1,0 +1,13 @@
+---
+description: su-ai 扩展分层与安全约定
+globs: extensions/su-ai/**
+alwaysApply: false
+---
+
+# su-ai 扩展
+
+- 入口仅 `src/extension.ts`；配置读写集中在 `config` 模块。
+- v0.2 起 API Key 必须走 `SecretStorage`（或同等安全存储），设置里可用占位提示。
+- LLM 调用必须支持取消（CancellationToken）与超时（`su.timeoutMs`）。
+- 改扩展后更新 `docs/modules/su-ai.INDEX.md`。
+- TypeScript：清晰命名；注释只写 why；避免无意义注释。

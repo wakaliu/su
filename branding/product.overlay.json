@@ -1,0 +1,21 @@
+{
+  "nameShort": "su",
+  "nameLong": "su",
+  "applicationName": "su",
+  "dataFolderName": ".su",
+  "win32MutexName": "su",
+  "licenseName": "MIT",
+  "licenseUrl": "https://github.com/microsoft/vscode/blob/main/LICENSE.txt",
+  "serverLicenseUrl": "https://github.com/microsoft/vscode/blob/main/LICENSE.txt",
+  "reportIssueUrl": "https://github.com/wakaliu/su/issues",
+  "nodejsRepository": "https://nodejs.org",
+  "urlProtocol": "su",
+  "quality": "stable",
+  "extensionsGallery": {
+    "serviceUrl": "https://open-vsx.org/vscode/gallery",
+    "itemUrl": "https://open-vsx.org/vscode/item",
+    "resourceUrlTemplate": "https://open-vsx.org/vscode/unpkg/{publisher}/{name}/{version}/{path}",
+    "controlUrl": "",
+    "recommendationsUrl": ""
+  }
+}

@@ -1,0 +1,14 @@
+---
+description: 代码与文档索引必须同事务更新
+globs: "{extensions/**,branding/**,patches/**,scripts/**}"
+alwaysApply: false
+---
+
+# docs-sync
+
+完成定义包含：
+
+1. 相关 `docs/modules/*.INDEX.md` 已更新
+2. 若行为可验收，`docs/acceptance/v0.x.md` 已反映
+3. 若为架构/上游决策，新增或更新 `docs/decisions/ADR-*.md`
+4. 发版前走 `su-release-gate` Skill
