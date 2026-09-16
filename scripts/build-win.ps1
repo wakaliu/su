@@ -12,7 +12,6 @@ function Invoke-Native {
     [Parameter(Mandatory = $true)][string]$FilePath,
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$ArgumentList
   )
-  # npm/node often write warnings to stderr; do not treat as terminating under Stop
   $prev = $ErrorActionPreference
   $ErrorActionPreference = 'Continue'
   try {
@@ -32,13 +31,17 @@ if (-not (Test-Path $Vendor)) {
 Write-Host "==> build-win (this can take a long time)"
 Push-Location $Vendor
 try {
-  if (-not (Test-Path 'node_modules')) {
-    Write-Host "==> npm ci / npm install"
+  # Prefer .bin shim — package folder alone can exist after a broken/partial install
+  $depsOk = (Test-Path 'node_modules\.bin\npm-run-all2.cmd') -or (Test-Path 'node_modules\.bin\npm-run-all2')
+  if (-not $depsOk) {
+    Write-Host "==> npm ci (full vscode deps; may take 10-40+ minutes)"
     if (Test-Path 'package-lock.json') {
       Invoke-Native npm ci
     } else {
       Invoke-Native npm install
     }
+  } else {
+    Write-Host "==> node_modules looks complete; skip npm ci"
   }
 
   & (Join-Path $PSScriptRoot 'apply-branding.ps1')
