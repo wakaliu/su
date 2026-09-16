@@ -4,7 +4,7 @@
 
 - Windows 10/11 x64
 - Git
-- Node.js 20+（推荐与上游一致；当前开发机可用 22）
+- Node.js **24.x**（必须与上游 `vendor/vscode/.nvmrc` 主版本一致；1.136.1 要求 Node 24，用 22 会在 `preinstall` 直接失败）
 - Python 3.10+
 - Visual Studio 2019/2022 Build Tools（含「使用 C++ 的桌面开发」）
   - **必须**安装对应工具集的 **Spectre 缓解库**（MSVC Spectre-mitigated libs），否则 `@vscode/spdlog` 等原生模块会报 `MSB8040`
@@ -101,5 +101,5 @@ npm run compile
 
 若 Actions 未出现 workflow：确认 `.github/workflows/build-win.yml` 已在 `develop`，并启用仓库 Actions 权限。
 
-| `@vscode/sqlite3` 报 `node` is not recognized | MSBuild 自定义步骤丢了 node PATH：CI 用 `GITHUB_PATH` 前置 hosted node；`build-win.ps1` 在已有 `VCINSTALLDIR` 时不再重复 vcvars |
+| `preinstall` 要求 Node 24 | CI/`setup-node` 使用 Node **24**（勿用 22）；也可用 `VSCODE_SKIP_NODE_VERSION_CHECK=1` 跳过（不推荐） |
 | GitHub API 403 ripgrep | Actions 已注入 `GITHUB_TOKEN`；本机可设 PAT 到 `GITHUB_TOKEN` |

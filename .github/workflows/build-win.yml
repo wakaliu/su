@@ -26,7 +26,8 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          # Must match vendor/vscode .nvmrc major (1.136.1 => Node 24)
+          node-version: '24'
 
       - uses: actions/setup-python@v5
         with:
