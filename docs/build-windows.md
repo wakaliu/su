@@ -101,4 +101,5 @@ npm run compile
 
 若 Actions 未出现 workflow：确认 `.github/workflows/build-win.yml` 已在 `develop`，并启用仓库 Actions 权限。
 
-| Tee-Object 写错目录 | 日志请用绝对路径，例如 `$log = "$PWD\out\build-win.log"` |
+| Actions 上 node-gyp 找不到 VS | workflow 已用 `ilammy/msvc-dev-cmd`；`build-win.ps1` 用 vswhere 导入 vcvars（含 VS 18） |
+| GitHub API 403 ripgrep | Actions 已注入 `GITHUB_TOKEN`；本机可设 PAT 到 `GITHUB_TOKEN` |

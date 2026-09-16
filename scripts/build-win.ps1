@@ -25,17 +25,31 @@ function Invoke-Native {
 }
 
 function Import-VcVars64 {
-  $candidates = @(
-    'G:\6\VS2019\Community\VC\Auxiliary\Build\vcvars64.bat',
-    "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build\vcvars64.bat",
+  $candidates = New-Object System.Collections.Generic.List[string]
+
+  $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+  if (Test-Path $vswhere) {
+    $installPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath 2>$null
+    if ($installPath) {
+      $candidates.Add((Join-Path $installPath 'VC\Auxiliary\Build\vcvars64.bat'))
+    }
+  }
+
+  @(
+    "${env:ProgramFiles}\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat",
     "${env:ProgramFiles}\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat",
-    "${env:ProgramFiles}\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
-  )
-  $vcvars = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+    "${env:ProgramFiles}\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat",
+    "${env:ProgramFiles}\Microsoft Visual Studio\18\Enterprise\VC\Auxiliary\Build\vcvars64.bat",
+    'G:\6\VS2019\Community\VC\Auxiliary\Build\vcvars64.bat',
+    "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build\vcvars64.bat"
+  ) | ForEach-Object { [void]$candidates.Add($_) }
+
+  $vcvars = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
   if (-not $vcvars) {
-    Write-Host "==> vcvars64.bat not found; relying on existing PATH"
+    Write-Host "==> vcvars64.bat not found; relying on existing PATH / msvc-dev-cmd"
     return
   }
+
   Write-Host "==> import $vcvars"
   $prev = $ErrorActionPreference
   $ErrorActionPreference = 'Continue'
@@ -45,6 +59,12 @@ function Import-VcVars64 {
     }
   }
   $ErrorActionPreference = $prev
+
+  if (-not $env:VCINSTALLDIR) {
+    Write-Host "==> warning: VCINSTALLDIR still empty after vcvars"
+  } else {
+    Write-Host "==> VCINSTALLDIR=$env:VCINSTALLDIR"
+  }
 }
 
 if (-not (Test-Path $Vendor)) {
@@ -54,8 +74,27 @@ if (-not (Test-Path $Vendor)) {
 Write-Host "==> build-win (this can take a long time)"
 Import-VcVars64
 
-$spectreLib = 'G:\6\VS2019\Community\VC\Tools\MSVC\14.29.30133\lib\spectre\x64'
-if (-not (Test-Path $spectreLib)) {
+# Help node-gyp on newer VS (e.g. VS 18 / 2022) when version probing is flaky
+if (-not $env:npm_config_msvs_version) {
+  $env:npm_config_msvs_version = '2022'
+}
+if ($env:PythonLocation) {
+  $env:npm_config_python = (Join-Path $env:PythonLocation 'python.exe')
+  Write-Host "==> npm_config_python=$env:npm_config_python"
+}
+
+$spectreLibCandidates = @(
+  'G:\6\VS2019\Community\VC\Tools\MSVC\14.29.30133\lib\spectre\x64'
+)
+if ($env:VCINSTALLDIR) {
+  Get-ChildItem (Join-Path $env:VCINSTALLDIR 'Tools\MSVC') -Directory -ErrorAction SilentlyContinue |
+    ForEach-Object { $spectreLibCandidates += (Join-Path $_.FullName 'lib\spectre\x64') }
+}
+$hasSpectre = $false
+foreach ($p in $spectreLibCandidates) {
+  if ($p -and (Test-Path $p)) { $hasSpectre = $true; Write-Host "==> Spectre libs found at $p"; break }
+}
+if (-not $hasSpectre) {
   $spectreProps = Join-Path $PSScriptRoot 'disable-spectre.props'
   if (Test-Path $spectreProps) {
     $env:ForceImportBeforeCppTargets = $spectreProps
@@ -63,7 +102,6 @@ if (-not (Test-Path $spectreLib)) {
   }
 } else {
   Remove-Item Env:ForceImportBeforeCppTargets -ErrorAction SilentlyContinue
-  Write-Host "==> Spectre libs found at $spectreLib"
 }
 
 Push-Location $Vendor
@@ -83,8 +121,9 @@ try {
   & (Join-Path $PSScriptRoot 'apply-branding.ps1')
   & (Join-Path $PSScriptRoot 'inject-extension.ps1')
 
-  Write-Host "==> compile client + extensions build pipeline"
-  Invoke-Native npm run compile
+  # Skip compile-copilot (Microsoft-only chat extension) for OSS packaging
+  Write-Host "==> compile-client (skip compile-copilot)"
+  Invoke-Native npm run compile-client
   Invoke-Native npm run gulp -- compile-build-without-mangling
   Invoke-Native npm run gulp -- compile-extensions-build
   Invoke-Native npm run gulp -- compile-extension-media
