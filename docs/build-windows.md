@@ -87,13 +87,18 @@ npm run compile
 
 然后在仓库根目录重跑：`.\scripts\build-win.ps1`
 
-### 本机工具链不完整时（推荐改走 CI）
+### 用 GitHub Actions 出 Windows 验收包（推荐）
 
-若 `npm ci` 继续出现 `LNK1181: delayimp.lib` 等链接错误，说明 VS C++/Windows SDK 组件不完整。个人开发机可：
+本机若遇 Spectre / `delayimp.lib` / GitHub API 403（ripgrep）等问题，改用 CI：
 
-1. VS Installer → 修改 → 工作负载勾选「使用 C++ 的桌面开发」并确保含 Windows 10/11 SDK
-2. **或直接用 GitHub Actions**：仓库 Actions → workflow **`build-win`** → Run workflow（基于 `windows-latest` 完整工具链出包）
+1. **推送**本地 `develop` 全部提交：`git push origin develop`
+2. 打开仓库 Actions：https://github.com/wakaliu/su/actions
+3. 左侧选择 workflow **`build-win`**
+4. 点 **Run workflow** → Branch 选 **`develop`** → Run
+5. 等待结束（常要 1–3 小时，`windows-latest` 工具链较全）
+6. 打开该次 run → **Artifacts** → 下载 **`su-win32-x64`**
+7. 解压后按 [acceptance/v0.1.md](acceptance/v0.1.md) 验收
 
-Agent 侧约定：骨架与脚本在 `develop` 交付；全量 Windows 安装包以 CI artifact 或本机修好工具链后的 `out/su-win32-x64-*.zip` 为准。
+若 Actions 未出现 workflow：确认 `.github/workflows/build-win.yml` 已在 `develop`，并启用仓库 Actions 权限。
 
 | Tee-Object 写错目录 | 日志请用绝对路径，例如 `$log = "$PWD\out\build-win.log"` |
