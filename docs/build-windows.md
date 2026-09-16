@@ -55,5 +55,38 @@ npm run compile
 | vendor 为空 | 先跑 `bootstrap.ps1` |
 | PowerShell 因 npm warn 中断 | 已用 `Invoke-Native` 忽略 stderr 警告；请拉取最新 `scripts/*.ps1` |
 | Agent 环境无 GitHub SSH | 由你本机手动 `git push`（约定） |
-| MSB8040 Spectre 库缺失 | 在 VS Installer 为对应工具集安装 **Spectre-mitigated libs**（x64/x86），或改用 VS 2022 Build Tools；也可改走 GitHub Actions `build-win` |
+### 安装 Spectre 缓解库（本机 VS2019）
+
+报错 `MSB8040` 且路径在 `G:\6\VS2019\Community` 时，请安装：
+
+**单个组件（推荐勾这两个）：**
+
+1. `MSVC v142 - VS 2019 C++ x64/x86 Spectre-mitigated libs`（Latest / v14.29）
+2. （可选）`C++ ATL for latest v142 build tools with Spectre Mitigations (x86 & x64)`
+
+**图形界面：**
+
+1. 打开 **Visual Studio Installer**
+2. 对 **VS 2019 Community** 点「修改」
+3. 「单个组件」搜索 `Spectre`
+4. 勾选上面两项 → 修改
+
+**管理员 PowerShell（可复制）：**
+
+```powershell
+& "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe" modify `
+  --installPath "G:\6\VS2019\Community" `
+  --add Microsoft.VisualStudio.Component.VC.Runtimes.x86.x64.Spectre `
+  --add Microsoft.VisualStudio.Component.VC.14.29.16.11.x86.x64.Spectre `
+  --passive --norestart
+```
+
+装完后确认存在目录：
+
+`G:\6\VS2019\Community\VC\Tools\MSVC\14.29.30133\lib\spectre\x64`
+
+然后在仓库根目录重跑：`.\scripts\build-win.ps1`
+
+> Agent 无法在未授权 UAC 的情况下替你完成安装；需你本机点允许或走安装器 GUI。
+
 | Tee-Object 写错目录 | 日志请用绝对路径，例如 `$log = "$PWD\out\build-win.log"` |
