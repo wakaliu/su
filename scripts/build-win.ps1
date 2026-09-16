@@ -72,7 +72,23 @@ if (-not (Test-Path $Vendor)) {
 }
 
 Write-Host "==> build-win (this can take a long time)"
-Import-VcVars64
+# msvc-dev-cmd already configures the toolchain on CI; re-importing vcvars can
+# drop `node` from PATH seen by MSBuild custom build steps (@vscode/sqlite3).
+if ($env:VCINSTALLDIR) {
+  Write-Host "==> VCINSTALLDIR already set ($env:VCINSTALLDIR); skip vcvars re-import"
+} else {
+  Import-VcVars64
+}
+
+# MSBuild custom tools often spawn `node` without the hostedtoolcache path
+$nodeCmd = Get-Command node -ErrorAction SilentlyContinue
+if ($nodeCmd) {
+  $nodeDir = Split-Path -Parent $nodeCmd.Source
+  $env:PATH = "$nodeDir;$env:PATH"
+  Write-Host "==> prepend node dir to PATH: $nodeDir"
+} else {
+  throw "node not found on PATH before npm ci"
+}
 
 # Help node-gyp pick a known VS generation. Do NOT force 2022 on VS 18 runners
 # (node-gyp currently reports unknown version "undefined" for VS 18).

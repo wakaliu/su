@@ -37,6 +37,14 @@ jobs:
         with:
           arch: x64
 
+      # Keep hosted node ahead of VC paths so MSBuild custom steps can run `node`
+      - name: Prefer setup-node on PATH
+        shell: pwsh
+        run: |
+          $nodeDir = Split-Path -Parent (Get-Command node).Source
+          Write-Host "nodeDir=$nodeDir"
+          Add-Content -Path $env:GITHUB_PATH -Value $nodeDir
+
       - name: Bootstrap upstream + branding
         shell: pwsh
         run: .\scripts\bootstrap.ps1
