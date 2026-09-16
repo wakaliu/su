@@ -34,3 +34,7 @@
 ## 沟通
 
 对用户使用简体中文。涉及 C#/`{ }` 风格、Lua/C# 飞书规范时，仅在写对应语言时遵守；本仓库主语言为 TypeScript。
+
+## Git 推送约定
+
+当前 Agent 环境可能无 GitHub SSH/`gh` 登录。**需要推远程时由维护者本机手动 `git push`**；Agent 负责本地 commit 与说明。

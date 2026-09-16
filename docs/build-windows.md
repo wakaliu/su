@@ -6,8 +6,10 @@
 - Git
 - Node.js 20+（推荐与上游一致；当前开发机可用 22）
 - Python 3.10+
-- Visual Studio 2022 Build Tools（含「使用 C++ 的桌面开发」）
+- Visual Studio 2019/2022 Build Tools（含「使用 C++ 的桌面开发」）
+  - **必须**安装对应工具集的 **Spectre 缓解库**（MSVC Spectre-mitigated libs），否则 `@vscode/spdlog` 等原生模块会报 `MSB8040`
 - 磁盘：建议 ≥ 30GB 可用
+- 若本机原生编译困难：推送 `develop` 后在 GitHub Actions 手动运行 workflow **`build-win`** 出包
 
 ## 快速体验（开发态，不全量打包）
 
@@ -53,3 +55,5 @@ npm run compile
 | vendor 为空 | 先跑 `bootstrap.ps1` |
 | PowerShell 因 npm warn 中断 | 已用 `Invoke-Native` 忽略 stderr 警告；请拉取最新 `scripts/*.ps1` |
 | Agent 环境无 GitHub SSH | 由你本机手动 `git push`（约定） |
+| MSB8040 Spectre 库缺失 | 在 VS Installer 为对应工具集安装 **Spectre-mitigated libs**（x64/x86），或改用 VS 2022 Build Tools；也可改走 GitHub Actions `build-win` |
+| Tee-Object 写错目录 | 日志请用绝对路径，例如 `$log = "$PWD\out\build-win.log"` |
