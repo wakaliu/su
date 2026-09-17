@@ -157,16 +157,20 @@ try {
 
   & (Join-Path $PSScriptRoot 'apply-branding.ps1')
   & (Join-Path $PSScriptRoot 'inject-extension.ps1')
+  & (Join-Path $PSScriptRoot 'apply-patches.ps1')
 
-  # Skip compile-copilot (Microsoft-only chat extension) for OSS packaging
+  # Skip compile-copilot (Microsoft-only chat extension) for OSS packaging.
+  # *-min-ci reads out-vscode-min; without-mangling + bundle produces out-vscode,
+  # so package with non-min vscode-win32-x64-ci (matches classic OSS gulp chain).
   Write-Host "==> compile-client (skip compile-copilot)"
   Invoke-Native npm run compile-client
   Invoke-Gulp compile-build-without-mangling
   Invoke-Gulp compile-extensions-build
   Invoke-Gulp compile-extension-media
+  Invoke-Gulp bundle-vscode
 
-  Write-Host "==> gulp vscode-win32-x64-min-ci"
-  Invoke-Gulp vscode-win32-x64-min-ci
+  Write-Host "==> gulp vscode-win32-x64-ci"
+  Invoke-Gulp vscode-win32-x64-ci
 } finally {
   Pop-Location
 }

@@ -102,4 +102,6 @@ npm run compile
 若 Actions 未出现 workflow：确认 `.github/workflows/build-win.yml` 已在 `develop`，并启用仓库 Actions 权限。
 
 | `JavaScript heap out of memory` / gulp exit 134 | `compile-build-without-mangling` 默认 8GB 不够；`build-win.ps1` 用 `SU_NODE_HEAP_MB`（CI 默认 14336）直接调 gulp.js |
+| `ENOENT ... out-vscode-min\...\preload.js` | `*-min-ci` 需要先 `minify-vscode`；su 用 `bundle-vscode` + `vscode-win32-x64-ci`（非 min，与 without-mangling 一致） |
+| Copilot ripgrep shim throw | OSS 跳过 Copilot；`apply-patches.ps1` 将缺失 SDK 改为 skip（见 patches 0001） |
 | GitHub API 403 ripgrep | Actions 已注入 `GITHUB_TOKEN`；本机可设 PAT 到 `GITHUB_TOKEN` |

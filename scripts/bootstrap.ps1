@@ -45,5 +45,6 @@ if (-not (Test-Path (Join-Path $Vendor '.git'))) {
 
 & (Join-Path $PSScriptRoot 'apply-branding.ps1')
 & (Join-Path $PSScriptRoot 'inject-extension.ps1')
+& (Join-Path $PSScriptRoot 'apply-patches.ps1')
 
 Write-Host "==> bootstrap done"
