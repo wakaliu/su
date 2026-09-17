@@ -57,4 +57,54 @@ if ($copilotContent.Contains($suMarker)) {
   Write-Host "==> applied patch 0001-skip-copilot-shim -> build/lib/copilot.ts"
 }
 
+# --- 0002: tolerate tsgo (TS7 native preview) crash on Windows CI (exit != 0 but 0 error lines) ---
+$tsgoTs = Join-Path $Vendor 'build\lib\tsgo.ts'
+if (-not (Test-Path $tsgoTs)) {
+  throw "Expected upstream file missing: $tsgoTs"
+}
+
+$tsgoContent = [System.IO.File]::ReadAllText($tsgoTs)
+$suTsgoMarker = '// [su] tsgo (TS7 native preview) can crash on Windows CI with a'
+if ($tsgoContent.Contains($suTsgoMarker)) {
+  Write-Host "==> patch 0002-tsgo-exit2-tolerance already applied"
+} else {
+  # Match the single reject line in spawnTsgo exit handler (vscode 1.136.1) and
+  # replace it with a guarded downgrade: non-zero exit with 0 "error X:" lines
+  # becomes a warning; genuine type errors still reject.
+  $pattern = '(?m)^\t\t\t\treject\(new Error\(`tsgo exited with code \$\{code \?\? ''unknown''\}`\)\);'
+  if ($tsgoContent -notmatch $pattern) {
+    throw "Patch 0002 failed: could not locate reject line in $tsgoTs"
+  }
+  # $nl/$tab via ternary-free form for PS 5.1 + 7 compatibility
+  if ($tsgoContent -match "`r`n") { $nl = "`r`n" } else { $nl = "`n" }
+  $tab = "`t"
+  # .NET Regex.Replace: $$ => literal $; ${code ...} in replacement would be
+  # parsed as a named group reference, so escape as $${code ...} (as in 0001).
+  # Indentation: the matched reject line sits at 4 tabs (inside the 3-tab
+  # "} else {"), so the guard starts at 4 tabs and its body at 5.
+  $replacement = (
+    ($tab * 4) + '// [su] tsgo (TS7 native preview) can crash on Windows CI with a' + $nl +
+    ($tab * 4) + '// non-zero exit while reporting 0 type errors. Real diagnostics' + $nl +
+    ($tab * 4) + '// always produce "error TSxxxx" lines, which runReporter echoes' + $nl +
+    ($tab * 4) + '// above. Downgrade "crashed but no errors" to a warning so' + $nl +
+    ($tab * 4) + '// packaging is not blocked; genuine type errors still fail.' + $nl +
+    ($tab * 4) + 'const errorLines = lines.filter(line => /error \w+:/.test(line));' + $nl +
+    ($tab * 4) + 'if (errorLines.length === 0) {' + $nl +
+    ($tab * 5) + 'fancyLog.warn(`[su] tsgo exited with code $${code ?? ''unknown''} but reported 0 errors; treating as non-blocking (native compiler crash?)`);' + $nl +
+    ($tab * 5) + 'Promise.resolve(onComplete?.()).then(() => resolve(), reject);' + $nl +
+    ($tab * 4) + '} else {' + $nl +
+    ($tab * 5) + 'reject(new Error(`tsgo exited with code $${code ?? ''unknown''}`));' + $nl +
+    ($tab * 4) + '}'
+  )
+  $tsgoContent = [regex]::Replace($tsgoContent, $pattern, $replacement, 1)
+  if (-not $tsgoContent.Contains($suTsgoMarker)) {
+    throw "Patch 0002 failed: marker missing after replace"
+  }
+  if ($tsgoContent -notmatch 'errorLines\.length === 0') {
+    throw "Patch 0002 failed: guard missing after replace"
+  }
+  Set-FileUtf8NoBom -Path $tsgoTs -Content $tsgoContent
+  Write-Host "==> applied patch 0002-tsgo-exit2-tolerance -> build/lib/tsgo.ts"
+}
+
 Write-Host "==> apply-patches done"

@@ -103,6 +103,7 @@ npm run compile
 
 | `JavaScript heap out of memory` / gulp exit 134 | `compile-build-without-mangling` 默认 8GB 不够；`build-win.ps1` 用 `SU_NODE_HEAP_MB`（CI 默认 14336）直接调 gulp.js |
 | `tsgo exited with code 2`（`gulp compile` / `compile-client`） | 打包**不跑** `compile-client`；正式链只用 `compile-build-without-mangling` → extensions → media → `bundle-vscode` → `vscode-win32-x64-ci` |
+| `tsgo exited with code 2`（`compile-build-without-mangling` 内 `compile-src`，且报告 0 errors） | TS7 native preview 在 CI 上原生崩溃；patch 0002 降级为 warning 放行（真实 `error TSxxxx` 仍挡构建） |
 | `ENOENT ... out-vscode-min\...\preload.js` | `*-min-ci` 需要先 `minify-vscode`；su 用 `bundle-vscode` + `vscode-win32-x64-ci`（非 min，与 without-mangling 一致） |
 | Copilot ripgrep shim throw | OSS 跳过 Copilot；`apply-patches.ps1` 将缺失 SDK 改为 skip（见 patches 0001） |
 | GitHub API 403 ripgrep | Actions 已注入 `GITHUB_TOKEN`；本机可设 PAT 到 `GITHUB_TOKEN` |
