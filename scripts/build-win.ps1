@@ -159,11 +159,14 @@ try {
   & (Join-Path $PSScriptRoot 'inject-extension.ps1')
   & (Join-Path $PSScriptRoot 'apply-patches.ps1')
 
-  # Skip compile-copilot (Microsoft-only chat extension) for OSS packaging.
-  # *-min-ci reads out-vscode-min; without-mangling + bundle produces out-vscode,
-  # so package with non-min vscode-win32-x64-ci (matches classic OSS gulp chain).
-  Write-Host "==> compile-client (skip compile-copilot)"
-  Invoke-Native npm run compile-client
+  # Classic OSS packaging (see gulpfile.vscode.ts vscodeWin32X64Task):
+  # compile-build-without-mangling → extensions(+media) → bundle-vscode → *-ci.
+  # Do NOT run compile-client here: it is the full-dev `gulp compile` (parallel
+  # tsgo across every extension). Packaging does not consume out/; only out-build
+  # / out-vscode. Skipping avoids CI flakes (tsgo exit 2) and ~minutes of work.
+  # compile-copilot remains skipped (Microsoft-only; patch 0001 covers shim).
+  # Prefer vscode-win32-x64-ci over *-min-ci: without-mangling + bundle writes
+  # out-vscode, not out-vscode-min.
   Invoke-Gulp compile-build-without-mangling
   Invoke-Gulp compile-extensions-build
   Invoke-Gulp compile-extension-media
