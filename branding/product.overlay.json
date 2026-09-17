@@ -10,7 +10,7 @@
   "reportIssueUrl": "https://github.com/wakaliu/su/issues",
   "nodejsRepository": "https://nodejs.org",
   "urlProtocol": "su",
-  "quality": "stable",
+  "quality": "oss",
   "extensionsGallery": {
     "serviceUrl": "https://open-vsx.org/vscode/gallery",
     "itemUrl": "https://open-vsx.org/vscode/item",
