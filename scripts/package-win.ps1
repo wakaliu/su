@@ -8,7 +8,14 @@ $Root = Split-Path -Parent $PSScriptRoot
 $Vendor = Join-Path $Root 'vendor\vscode'
 $OutDir = Join-Path $Root 'out\win32-x64'
 $Stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$ZipPath = Join-Path $Root "out\su-win32-x64-$Stamp.zip"
+$Version = '0.0.0'
+$VersionFile = Join-Path $Root 'branding\version.json'
+if (Test-Path $VersionFile) {
+  try {
+    $Version = (Get-Content -Raw -Encoding UTF8 $VersionFile | ConvertFrom-Json).version
+  } catch { }
+}
+$ZipPath = Join-Path $Root "out\su-win32-x64-$Version-$Stamp.zip"
 
 # Upstream gulp typically writes to .build/ or ../VSCode-win32-x64 relative to vscode
 $Candidates = @(

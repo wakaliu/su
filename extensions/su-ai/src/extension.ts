@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { getSuConfig } from './config';
+import { UpdateService } from './update';
 
 /** Opens Settings focused on Su AI relay/model fields (not a fuzzy "su" search). */
 async function openSuAiSettings(): Promise<void> {
@@ -13,6 +14,9 @@ export function activate(context: vscode.ExtensionContext): void {
   const openSettings = vscode.commands.registerCommand('su.openSettings', openSuAiSettings);
   context.subscriptions.push(openSettings);
 
+  const updates = new UpdateService(context);
+  updates.activate();
+
   // Status bar: always-visible shortcut when the Activity Bar icon is easy to miss.
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   status.text = '$(gear) Su AI';
@@ -22,7 +26,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(status);
 
   const cfg = getSuConfig();
-  console.log(`[su-ai] activated; model=${cfg.model}; baseUrl=${cfg.baseUrl}`);
+  console.log(`[su-ai] activated; model=${cfg.model}; baseUrl=${cfg.baseUrl}; version=${updates.currentVersion}`);
 }
 
 /**

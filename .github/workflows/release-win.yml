@@ -1,0 +1,104 @@
+name: release-win
+
+# Build Windows package and publish a GitHub Release for in-app update checks.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to publish (e.g. v0.1.1). Required for manual release upload.'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 360
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      SU_NODE_HEAP_MB: '14336'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release tag
+        id: meta
+        shell: pwsh
+        run: |
+          if ('${{ github.ref_type }}' -eq 'tag') {
+            $tag = '${{ github.ref_name }}'
+          } else {
+            $tag = '${{ inputs.tag }}'.Trim()
+          }
+          if (-not $tag) { throw 'Missing release tag' }
+          if ($tag -notmatch '^v') { $tag = "v$tag" }
+          $ver = $tag.TrimStart('v')
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "version=$ver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "tag=$tag version=$ver"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Prefer setup-node on PATH
+        shell: pwsh
+        run: |
+          $nodeDir = Split-Path -Parent (Get-Command node).Source
+          Add-Content -Path $env:GITHUB_PATH -Value $nodeDir
+
+      - name: Align branding version with tag
+        shell: pwsh
+        run: |
+          $ver = '${{ steps.meta.outputs.version }}'
+          $path = 'branding/version.json'
+          $obj = Get-Content -Raw -Encoding UTF8 $path | ConvertFrom-Json
+          $obj.version = $ver
+          ($obj | ConvertTo-Json -Depth 10) | Set-Content -Encoding UTF8 $path
+          Write-Host "branding/version.json => $ver"
+
+      - name: Bootstrap upstream + branding
+        shell: pwsh
+        run: .\scripts\bootstrap.ps1
+
+      - name: Build win32-x64
+        shell: pwsh
+        run: .\scripts\build-win.ps1
+
+      - name: Package
+        shell: pwsh
+        run: .\scripts\package-win.ps1
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: su-win32-x64
+          path: out/**
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: su ${{ steps.meta.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            out/su-win32-x64-*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -18,7 +18,7 @@
 .\scripts\run-dev.ps1     # compile 后启动 Electron 开发壳（标题应为 su）
 ```
 
-在已启动的 su 中：命令面板 → `Su: Open Settings`，确认 `su.*` 配置项。
+在已启动的 su 中：命令面板 → `Su: AI 配置` / `Su: 检查更新`。更新机制见 [updates.md](updates.md)。
 
 ## 一键完整打包流程
 

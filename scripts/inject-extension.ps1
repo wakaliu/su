@@ -56,4 +56,26 @@ if (Test-Path $OutSrc) {
   Copy-Item -Path $OutSrc -Destination $OutDst -Recurse -Force
 }
 
+# Stamp product version into the built-in extension for update checks.
+$VersionFile = Join-Path $Root 'branding\version.json'
+if (Test-Path $VersionFile) {
+  Copy-Item -Force $VersionFile (Join-Path $Dst 'version.json')
+  Copy-Item -Force $VersionFile (Join-Path $Src 'version.json')
+  try {
+    $ver = (Get-Content -Raw -Encoding UTF8 $VersionFile | ConvertFrom-Json).version
+    if ($ver) {
+      $pkgPath = Join-Path $Dst 'package.json'
+      $pkg = Get-Content -Raw -Encoding UTF8 $pkgPath | ConvertFrom-Json
+      $pkg.version = "$ver"
+      $json = $pkg | ConvertTo-Json -Depth 100
+      [System.IO.File]::WriteAllText($pkgPath, $json)
+      Write-Host "==> stamped su-ai version $ver"
+    }
+  } catch {
+    Write-Host "==> warning: failed to stamp package.json version: $_"
+  }
+} else {
+  Write-Host "==> warning: missing branding/version.json"
+}
+
 Write-Host "==> su-ai injected"

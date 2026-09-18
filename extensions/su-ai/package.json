@@ -21,6 +21,12 @@
         "title": "Su: AI 配置（中转/模型）",
         "category": "Su",
         "icon": "$(gear)"
+      },
+      {
+        "command": "su.checkForUpdates",
+        "title": "Su: 检查更新",
+        "category": "Su",
+        "icon": "$(cloud-download)"
       }
     ],
     "submenus": [
@@ -46,11 +52,20 @@
         {
           "command": "su.openSettings",
           "group": "1_config@1"
+        },
+        {
+          "command": "su.checkForUpdates",
+          "group": "2_update@1"
         }
       ],
       "view/title": [
         {
           "command": "su.openSettings",
+          "when": "view == su.aiConfig",
+          "group": "navigation"
+        },
+        {
+          "command": "su.checkForUpdates",
           "when": "view == su.aiConfig",
           "group": "navigation"
         }
@@ -76,7 +91,7 @@
     "viewsWelcome": [
       {
         "view": "su.aiConfig",
-        "contents": "配置 OpenAI 兼容中转与模型（v0.1 占位；Chat 在 v0.2）。\n[打开 AI 配置](command:su.openSettings)\n\n设置项：`su.baseUrl` / `su.apiKey` / `su.model`"
+        "contents": "配置 OpenAI 兼容中转与模型（v0.1 占位；Chat 在 v0.2）。\n[打开 AI 配置](command:su.openSettings)\n[检查更新](command:su.checkForUpdates)\n\n设置项：`su.baseUrl` / `su.apiKey` / `su.model`"
       }
     ],
     "configuration": {
@@ -101,6 +116,21 @@
           "type": "number",
           "default": 60000,
           "description": "请求超时（毫秒）。"
+        },
+        "su.update.checkOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "description": "启动后自动检查 GitHub Releases 是否有新版本并提示（可取消下载）。"
+        },
+        "su.update.repo": {
+          "type": "string",
+          "default": "wakaliu/su",
+          "description": "用于检查更新的 GitHub 仓库（owner/name）。"
+        },
+        "su.update.includePrerelease": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否将 Pre-release 视为可更新版本。"
         }
       }
     }

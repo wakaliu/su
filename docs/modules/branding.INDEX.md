@@ -9,9 +9,11 @@
 | 路径 | 说明 |
 |------|------|
 | `branding/product.overlay.json` | 合并进上游 `product.json` 的字段 |
+| `branding/version.json` | 产品版本 + GitHub 仓库（供更新检查） |
 | `branding/icons/` | 应用图标（小篆「溯」黑底蓝绿；见 `icons/README.md`） |
 | `scripts/apply-branding.ps1` | 合并 overlay、复制 win32 图标 |
 | `scripts/export-app-icons.py` | 从确认母版导出 PNG/ICO 套件 |
+| `scripts/inject-extension.ps1` | 注入 su-ai 并写入 `version.json` |
 
 ## 关键字段（overlay）
 
