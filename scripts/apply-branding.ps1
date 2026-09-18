@@ -67,3 +67,21 @@ $product['linuxIconName'] = 'su'
 $json = $product | ConvertTo-Json -Depth 100
 [System.IO.File]::WriteAllText($ProductPath, $json)
 Write-Host "==> branding applied -> $ProductPath"
+
+# Replace Windows packaging icons when a custom pack is present.
+$IconSrc = Join-Path $Root 'branding\icons\win32'
+$IconDst = Join-Path $Root 'vendor\vscode\resources\win32'
+if ((Test-Path (Join-Path $IconSrc 'code.ico')) -and (Test-Path $IconDst)) {
+  Write-Host "==> apply win32 icons -> $IconDst"
+  Copy-Item -Force (Join-Path $IconSrc 'code.ico') (Join-Path $IconDst 'code.ico')
+  foreach ($name in @('code_150x150.png', 'code_70x70.png')) {
+    $src = Join-Path $IconSrc $name
+    if (Test-Path $src) {
+      Copy-Item -Force $src (Join-Path $IconDst $name)
+    }
+  }
+} elseif (-not (Test-Path (Join-Path $IconSrc 'code.ico'))) {
+  Write-Host "==> skip win32 icons (missing branding/icons/win32/code.ico)"
+} else {
+  Write-Host "==> skip win32 icons (vendor resources/win32 missing)"
+}
