@@ -18,7 +18,65 @@
     "commands": [
       {
         "command": "su.openSettings",
-        "title": "Su: Open Settings"
+        "title": "Su: AI 配置（中转/模型）",
+        "category": "Su",
+        "icon": "$(gear)"
+      }
+    ],
+    "submenus": [
+      {
+        "id": "su.menubar",
+        "label": "Su"
+      }
+    ],
+    "menus": {
+      "MenubarHelpMenu": [
+        {
+          "submenu": "su.menubar",
+          "group": "4_su"
+        }
+      ],
+      "MenubarPreferencesMenu": [
+        {
+          "command": "su.openSettings",
+          "group": "4_su@1"
+        }
+      ],
+      "su.menubar": [
+        {
+          "command": "su.openSettings",
+          "group": "1_config@1"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "su.openSettings",
+          "when": "view == su.aiConfig",
+          "group": "navigation"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "su-ai",
+          "title": "Su AI",
+          "icon": "media/su.svg"
+        }
+      ]
+    },
+    "views": {
+      "su-ai": [
+        {
+          "id": "su.aiConfig",
+          "name": "AI 配置"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "su.aiConfig",
+        "contents": "配置 OpenAI 兼容中转与模型（v0.1 占位；Chat 在 v0.2）。\n[打开 AI 配置](command:su.openSettings)\n\n设置项：`su.baseUrl` / `su.apiKey` / `su.model`"
       }
     ],
     "configuration": {
@@ -27,22 +85,22 @@
         "su.baseUrl": {
           "type": "string",
           "default": "https://api.openai.com/v1",
-          "description": "OpenAI-compatible API base URL (supports relay/proxy endpoints)."
+          "description": "OpenAI-compatible API base URL (中转/代理 Base URL，需含 /v1)。"
         },
         "su.apiKey": {
           "type": "string",
           "default": "",
-          "description": "API key (v0.1 placeholder; v0.2 will prefer SecretStorage)."
+          "description": "API key（v0.1 明文占位；v0.2 将改用 SecretStorage）。"
         },
         "su.model": {
           "type": "string",
           "default": "gpt-4o-mini",
-          "description": "Model name sent to the compatible API."
+          "description": "发给兼容 API 的模型名。"
         },
         "su.timeoutMs": {
           "type": "number",
           "default": 60000,
-          "description": "Request timeout in milliseconds."
+          "description": "请求超时（毫秒）。"
         }
       }
     }

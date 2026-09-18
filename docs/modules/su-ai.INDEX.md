@@ -14,9 +14,11 @@
 
 ## 当前版本（v0.1）
 
-- 命令：`su.openSettings` — 打开 su 相关设置
+- 命令：`su.openSettings` — 打开 Su AI 设置（过滤 `@ext:su.su-ai`）
+- 入口：左侧活动栏 **Su AI**、状态栏 **Su AI**、菜单 **帮助 → Su** / **首选项**
 - 配置占位：`su.baseUrl`、`su.apiKey`、`su.model`、`su.timeoutMs`
 - 尚无真实 LLM 调用（v0.2）
+- 资源：`media/su.svg`（活动栏图标）
 
 ## 禁止
 
