@@ -26,7 +26,7 @@
 # 1. 拉取上游并应用 branding / 注入扩展
 .\scripts\bootstrap.ps1
 
-# 2. 安装依赖并编译（耗时长）
+# 2. 安装依赖并编译（esbuild 快速路径，约 15-30 分钟）
 .\scripts\build-win.ps1
 
 # 3. 打包 zip（便携包）
@@ -35,6 +35,13 @@
 
 产物目录：`out/win32-x64/`；zip：`out/su-win32-x64-*.zip`。
 GitHub Actions：workflow `build-win`（手动或 push develop）。
+
+若需回退旧管线（gulp-tsb，约 2 小时），设环境变量后构建：
+
+```powershell
+$env:SU_BUILD_LEGACY = '1'
+.\scripts\build-win.ps1
+```
 
 ## 仅验证扩展（不全量编 IDE）
 

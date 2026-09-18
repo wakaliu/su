@@ -16,19 +16,16 @@ permissions:
 
 jobs:
   windows:
-    # windows-latest is currently windows-2025 + VS 18; node-gyp cannot parse VS 18 yet
     runs-on: windows-2022
-    timeout-minutes: 360
+    timeout-minutes: 120
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      # Used by scripts/build-win.ps1 Invoke-Gulp (default 14336 if unset)
       SU_NODE_HEAP_MB: '14336'
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          # Must match vendor/vscode .nvmrc major (1.136.1 => Node 24)
           node-version: '24'
 
       - uses: actions/setup-python@v5
@@ -40,7 +37,6 @@ jobs:
         with:
           arch: x64
 
-      # Keep hosted node ahead of VC paths so MSBuild custom steps can run `node`
       - name: Prefer setup-node on PATH
         shell: pwsh
         run: |
@@ -52,7 +48,7 @@ jobs:
         shell: pwsh
         run: .\scripts\bootstrap.ps1
 
-      - name: Build win32-x64
+      - name: Build win32-x64 (esbuild fast path)
         shell: pwsh
         run: .\scripts\build-win.ps1
 

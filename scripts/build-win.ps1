@@ -28,8 +28,6 @@ function Invoke-Gulp {
   param(
     [Parameter(Mandatory = $true)][string[]]$Tasks
   )
-  # package.json "gulp" hardcodes --max-old-space-size=8192 which OOMs on vscode 1.136
-  # production compile; call gulp.js directly with a larger heap (GH windows runners ~16GB).
   $heapMb = if ($env:SU_NODE_HEAP_MB) { $env:SU_NODE_HEAP_MB } else { '14336' }
   Write-Host "==> gulp ($($Tasks -join ' ')) heap=${heapMb}MB"
   Invoke-Native node --experimental-strip-types "--max-old-space-size=$heapMb" .\node_modules\gulp\bin\gulp.js @Tasks
@@ -82,7 +80,14 @@ if (-not (Test-Path $Vendor)) {
   throw "Run .\scripts\bootstrap.ps1 first"
 }
 
-Write-Host "==> build-win (this can take a long time)"
+# Allow callers to force the legacy gulp-tsb path (for debugging).
+$UseEsbuild = -not ($env:SU_BUILD_LEGACY -eq '1')
+if ($UseEsbuild) {
+  Write-Host "==> build-win (esbuild fast path)"
+} else {
+  Write-Host "==> build-win (legacy gulp-tsb path)"
+}
+
 # msvc-dev-cmd already configures the toolchain on CI; re-importing vcvars can
 # drop `node` from PATH seen by MSBuild custom build steps (@vscode/sqlite3).
 if ($env:VCINSTALLDIR) {
@@ -159,21 +164,37 @@ try {
   & (Join-Path $PSScriptRoot 'inject-extension.ps1')
   & (Join-Path $PSScriptRoot 'apply-patches.ps1')
 
-  # Classic OSS packaging (see gulpfile.vscode.ts vscodeWin32X64Task):
-  # compile-build-without-mangling → extensions(+media) → bundle-vscode → *-ci.
-  # Do NOT run compile-client here: it is the full-dev `gulp compile` (parallel
-  # tsgo across every extension). Packaging does not consume out/; only out-build
-  # / out-vscode. Skipping avoids CI flakes (tsgo exit 2) and ~minutes of work.
-  # compile-copilot remains skipped (Microsoft-only; patch 0001 covers shim).
-  # Prefer vscode-win32-x64-ci over *-min-ci: without-mangling + bundle writes
-  # out-vscode, not out-vscode-min.
-  Invoke-Gulp compile-build-without-mangling
-  Invoke-Gulp compile-extensions-build
-  Invoke-Gulp compile-extension-media
-  Invoke-Gulp bundle-vscode
+  if ($UseEsbuild) {
+    # ── esbuild fast path (vscode 1.136.1 build/next) ──
+    # Upstream `vscode-win32-x64` task (useEsbuildTranspile=true) runs:
+    #   copy-codicons → clean-extensions → compile-non-native-extensions-build
+    #   → compile-copilot-extension-build → compile-extension-media-build
+    #   → writeISODate → esbuild-bundle → vscode-win32-x64-ci
+    #
+    # We skip compile-copilot-extension-build (OSS; patch 0001 covers shim).
+    # esbuild-bundle-win32-x64 produces out-vscode directly from src/ via esbuild
+    # (no gulp-tsb, no tsgo typecheck, no mangling) — typically 1-3 min vs 30+.
+    Invoke-Gulp copy-codicons
+    Invoke-Gulp clean-extensions-build
+    Invoke-Gulp compile-non-native-extensions-build
+    # compile-copilot-extension-build skipped (OSS; patch 0001)
+    Invoke-Gulp compile-extension-media-build
+    Invoke-Gulp esbuild-bundle-win32-x64
 
-  Write-Host "==> gulp vscode-win32-x64-ci"
-  Invoke-Gulp vscode-win32-x64-ci
+    Write-Host "==> gulp vscode-win32-x64-ci"
+    Invoke-Gulp vscode-win32-x64-ci
+  } else {
+    # ── legacy gulp-tsb path (original, ~2h) ──
+    # compile-build-without-mangling: gulp-tsb transpile + NLS + tsgo typecheck (~30-40 min)
+    # bundle-vscode: optimize entry points into out-vscode (~5-10 min)
+    Invoke-Gulp compile-build-without-mangling
+    Invoke-Gulp compile-extensions-build
+    Invoke-Gulp compile-extension-media
+    Invoke-Gulp bundle-vscode
+
+    Write-Host "==> gulp vscode-win32-x64-ci"
+    Invoke-Gulp vscode-win32-x64-ci
+  }
 } finally {
   Pop-Location
 }
