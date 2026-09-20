@@ -15,11 +15,20 @@ Code-OSS `quality: oss` **不接**微软更新通道。su 在内置扩展 **su-a
 
 应用内检查依赖仓库上存在 **高于当前 `branding/version.json` 的 Release tag**，且资产名尽量包含 `win32`/`windows`/`x64`，扩展名 `.exe` / `.msi` / `.zip`。
 
-推荐流程：
+### 自动 Pre-release（develop 构建）
+
+workflow **`build-win`** 在 `develop` 推送（或手动 Run）且打包成功后，会自动创建：
+
+- **Pre-release** tag：`v{version}-dev.{YYYYMMDD}.{短sha}`（例：`v0.1.0-dev.20260920.d028d63`）
+- 资产：`out/su-win32-x64-*.zip`
+
+默认用户**不会**收到这些更新（`su.update.includePrerelease=false`）。内测可在设置中打开该开关。
+
+### 正式 Release
 
 1. 修改 `branding/version.json` 的 `version`（如 `0.1.1`）
 2. 提交并 `git tag v0.1.1 && git push origin v0.1.1`
-3. 运行 workflow **`release-win`**（见 `.github/workflows/release-win.yml`）或手动把 `out/su-win32-x64-*.zip` 挂到该 Release
+3. 运行 workflow **`release-win`**（见 `.github/workflows/release-win.yml`），或手动把 zip 挂到该 Release
 
 ## 设置项
 

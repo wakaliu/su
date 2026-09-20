@@ -34,7 +34,7 @@
 ```
 
 产物目录：`out/win32-x64/`；zip：`out/su-win32-x64-*.zip`。
-GitHub Actions：workflow `build-win`（手动或 push develop）。
+GitHub Actions：workflow `build-win`（手动或 push develop）。成功后会自动发 **Pre-release**（tag 形如 `v0.1.0-dev.YYYYMMDD.短sha`，资产为 zip）；正式版用 `release-win` + `v*` tag，见 [updates.md](updates.md)。
 
 若需回退旧管线（gulp-tsb，约 2 小时），设环境变量后构建：
 

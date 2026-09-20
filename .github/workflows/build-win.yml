@@ -11,8 +11,9 @@ on:
       - 'patches/**'
       - '.github/workflows/build-win.yml'
 
+# Artifact upload needs read; Pre-release publish needs write (create tag + Release).
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   windows:
@@ -56,6 +57,24 @@ jobs:
         shell: pwsh
         run: .\scripts\package-win.ps1
 
+      - name: Resolve Pre-release tag
+        id: meta
+        shell: pwsh
+        run: |
+          $ver = '0.0.0'
+          $path = 'branding/version.json'
+          if (Test-Path $path) {
+            $ver = [string](Get-Content -Raw -Encoding UTF8 $path | ConvertFrom-Json).version
+            $ver = $ver.Trim().TrimStart('v', 'V')
+          }
+          $date = (Get-Date).ToUniversalTime().ToString('yyyyMMdd')
+          $sha = $env:GITHUB_SHA.Substring(0, 7)
+          # Unique per commit/day so develop rebuilds do not clobber each other.
+          $tag = "v$ver-dev.$date.$sha"
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "version=$ver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "pre-release tag=$tag (base version=$ver)"
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -63,3 +82,21 @@ jobs:
           path: out/**
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Publish Pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: su ${{ steps.meta.outputs.tag }}
+          prerelease: true
+          generate_release_notes: true
+          body: |
+            自动构建自 `develop`（commit `${{ github.sha }}`）。
+
+            - 基线版本：`${{ steps.meta.outputs.version }}`（见 `branding/version.json`）
+            - 用途：验收 / 内测；正式版请用 workflow **release-win**（打 `v*` tag）
+            - 应用内更新：需开启 `su.update.includePrerelease`
+          files: |
+            out/su-win32-x64-*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
