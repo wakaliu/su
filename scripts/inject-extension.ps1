@@ -25,6 +25,61 @@ function Invoke-Native {
   }
 }
 
+function Get-Utf8NoBomText {
+  param([Parameter(Mandatory = $true)][string]$Path)
+  return [System.IO.File]::ReadAllText($Path)
+}
+
+function Set-Utf8NoBomText {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][string]$Text
+  )
+  $utf8 = New-Object System.Text.UTF8Encoding $false
+  [System.IO.File]::WriteAllText($Path, $Text, $utf8)
+}
+
+<#
+  Reads branding version and normalizes to major.minor.patch for vsce.
+  Avoid ConvertFrom-Json/ConvertTo-Json — they can coerce 0.1.0 → number 0.1
+  and mangle non-ASCII in package.json.
+#>
+function Resolve-SuSemver {
+  param([Parameter(Mandatory = $true)][string]$VersionFile)
+  $raw = Get-Utf8NoBomText -Path $VersionFile
+  $m = [regex]::Match($raw, '"version"\s*:\s*"([^"]+)"')
+  if (-not $m.Success) {
+    throw "branding/version.json missing string field `"version`""
+  }
+  $ver = $m.Groups[1].Value.Trim().TrimStart('v', 'V')
+  # 0.1 → 0.1.0 ; keep pre-release suffix after patch when present
+  if ($ver -match '^(\d+)\.(\d+)$') {
+    $ver = "$ver.0"
+  }
+  if ($ver -notmatch '^\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$') {
+    throw "Invalid semver for extension package.json: '$ver' (vsce requires major.minor.patch)"
+  }
+  return $ver
+}
+
+function Set-PackageJsonVersion {
+  param(
+    [Parameter(Mandatory = $true)][string]$PackageJsonPath,
+    [Parameter(Mandatory = $true)][string]$Version
+  )
+  $text = Get-Utf8NoBomText -Path $PackageJsonPath
+  $updated = [regex]::Replace(
+    $text,
+    '"version"\s*:\s*"[^"]*"',
+    ('"version": "' + $Version + '"'),
+    1
+  )
+  if ($updated -eq $text -and $text -notmatch ('"version"\s*:\s*"' + [regex]::Escape($Version) + '"')) {
+    throw "Failed to stamp version into $PackageJsonPath"
+  }
+  Set-Utf8NoBomText -Path $PackageJsonPath -Text $updated
+}
+
 if (-not (Test-Path (Join-Path $Root 'vendor\vscode\extensions'))) {
   throw "vendor/vscode missing — run bootstrap.ps1 first"
 }
@@ -56,24 +111,14 @@ if (Test-Path $OutSrc) {
   Copy-Item -Path $OutSrc -Destination $OutDst -Recurse -Force
 }
 
-# Stamp product version into the built-in extension for update checks.
+# Stamp product version into the built-in extension for update checks / vsce.
 $VersionFile = Join-Path $Root 'branding\version.json'
 if (Test-Path $VersionFile) {
   Copy-Item -Force $VersionFile (Join-Path $Dst 'version.json')
   Copy-Item -Force $VersionFile (Join-Path $Src 'version.json')
-  try {
-    $ver = (Get-Content -Raw -Encoding UTF8 $VersionFile | ConvertFrom-Json).version
-    if ($ver) {
-      $pkgPath = Join-Path $Dst 'package.json'
-      $pkg = Get-Content -Raw -Encoding UTF8 $pkgPath | ConvertFrom-Json
-      $pkg.version = "$ver"
-      $json = $pkg | ConvertTo-Json -Depth 100
-      [System.IO.File]::WriteAllText($pkgPath, $json)
-      Write-Host "==> stamped su-ai version $ver"
-    }
-  } catch {
-    Write-Host "==> warning: failed to stamp package.json version: $_"
-  }
+  $ver = Resolve-SuSemver -VersionFile $VersionFile
+  Set-PackageJsonVersion -PackageJsonPath (Join-Path $Dst 'package.json') -Version $ver
+  Write-Host "==> stamped su-ai version $ver"
 } else {
   Write-Host "==> warning: missing branding/version.json"
 }

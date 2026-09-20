@@ -65,11 +65,16 @@ jobs:
       - name: Align branding version with tag
         shell: pwsh
         run: |
-          $ver = '${{ steps.meta.outputs.version }}'
+          $ver = '${{ steps.meta.outputs.version }}'.Trim().TrimStart('v', 'V')
+          if ($ver -match '^(\d+)\.(\d+)$') { $ver = "$ver.0" }
+          if ($ver -notmatch '^\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$') {
+            throw "Invalid release version '$ver' (need major.minor.patch)"
+          }
           $path = 'branding/version.json'
-          $obj = Get-Content -Raw -Encoding UTF8 $path | ConvertFrom-Json
-          $obj.version = $ver
-          ($obj | ConvertTo-Json -Depth 10) | Set-Content -Encoding UTF8 $path
+          $text = [System.IO.File]::ReadAllText($path)
+          $updated = [regex]::Replace($text, '"version"\s*:\s*"[^"]*"', ('"version": "' + $ver + '"'), 1)
+          $utf8 = New-Object System.Text.UTF8Encoding $false
+          [System.IO.File]::WriteAllText($path, $updated, $utf8)
           Write-Host "branding/version.json => $ver"
 
       - name: Bootstrap upstream + branding
