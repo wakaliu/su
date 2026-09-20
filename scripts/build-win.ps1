@@ -166,23 +166,16 @@ try {
 
   if ($UseEsbuild) {
     # ── esbuild fast path (vscode 1.136.1 build/next) ──
-    # Upstream `vscode-win32-x64` task (useEsbuildTranspile=true) runs:
-    #   copy-codicons → clean-extensions → compile-non-native-extensions-build
-    #   → compile-copilot-extension-build → compile-extension-media-build
+    # Use the registered top-level task `vscode-win32-x64` (useEsbuildTranspile=true):
+    #   copy-codicons → clean-extensions → non-native/copilot/media extensions
     #   → writeISODate → esbuild-bundle → vscode-win32-x64-ci
     #
-    # We skip compile-copilot-extension-build (OSS; patch 0001 covers shim).
-    # esbuild-bundle-win32-x64 produces out-vscode directly from src/ via esbuild
-    # (no gulp-tsb, no tsgo typecheck, no mangling) — typically 1-3 min vs 30+.
-    Invoke-Gulp copy-codicons
-    Invoke-Gulp clean-extensions-build
-    Invoke-Gulp compile-non-native-extensions-build
-    # compile-copilot-extension-build skipped (OSS; patch 0001)
-    Invoke-Gulp compile-extension-media-build
-    Invoke-Gulp esbuild-bundle-win32-x64
-
-    Write-Host "==> gulp vscode-win32-x64-ci"
-    Invoke-Gulp vscode-win32-x64-ci
+    # Do NOT invoke intermediate names like clean-extensions-build /
+    # esbuild-bundle-win32-x64 from the CLI — they are only task.define()'d
+    # internally and are not registered via task.task(), so gulp CLI fails.
+    # Copilot ripgrep shim absence is covered by patch 0001.
+    Write-Host "==> gulp vscode-win32-x64 (esbuild)"
+    Invoke-Gulp vscode-win32-x64
   } else {
     # ── legacy gulp-tsb path (original, ~2h) ──
     # compile-build-without-mangling: gulp-tsb transpile + NLS + tsgo typecheck (~30-40 min)
