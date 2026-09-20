@@ -3,24 +3,31 @@ import { resolveSuRuntimeConfig } from '../config';
 import { streamChatCompletion, type ChatMessage } from '../openaiClient';
 import { promptAndSetApiKey } from '../secrets';
 
+const HISTORY_KEY = 'su.chat.history';
+/** Max messages kept for API context + persistence (user+assistant pairs). */
+const MAX_HISTORY = 40;
+
 type WebviewToExt =
   | { type: 'ready' }
   | { type: 'send'; text: string; includeSelection: boolean }
   | { type: 'stop' }
   | { type: 'openSettings' }
-  | { type: 'setApiKey' };
+  | { type: 'setApiKey' }
+  | { type: 'newChat' };
 
 type ExtToWebview =
   | { type: 'status'; hasKey: boolean; model: string; baseUrl: string }
+  | { type: 'restore'; messages: Array<{ role: 'user' | 'assistant'; content: string }> }
   | { type: 'user'; text: string }
   | { type: 'assistantStart' }
   | { type: 'assistantDelta'; text: string }
   | { type: 'assistantDone' }
   | { type: 'error'; message: string }
-  | { type: 'stopped' };
+  | { type: 'stopped' }
+  | { type: 'cleared' };
 
 /**
- * Side-bar Chat panel (Cursor-like Ctrl+L target) with streaming OpenAI-compatible replies.
+ * Side-bar Chat panel with streaming replies, persisted history, and Markdown rendering.
  */
 export class ChatViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'su.chat';
@@ -29,7 +36,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private abort?: AbortController;
   private history: ChatMessage[] = [];
 
-  constructor(private readonly context: vscode.ExtensionContext) {}
+  constructor(private readonly context: vscode.ExtensionContext) {
+    this.history = this.loadHistory();
+  }
 
   /**
    * Reveals the Su Chat side bar and focuses the webview input.
@@ -55,12 +64,24 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       switch (raw.type) {
         case 'ready':
           await this.pushStatus();
+          this.post({
+            type: 'restore',
+            messages: this.history
+              .filter((m): m is ChatMessage & { role: 'user' | 'assistant' } => m.role === 'user' || m.role === 'assistant')
+              .map((m) => ({ role: m.role, content: m.content })),
+          });
           break;
         case 'send':
           await this.handleSend(raw.text, raw.includeSelection);
           break;
         case 'stop':
           this.abort?.abort();
+          break;
+        case 'newChat':
+          this.abort?.abort();
+          this.history = [];
+          await this.saveHistory();
+          this.post({ type: 'cleared' });
           break;
         case 'openSettings':
           await vscode.commands.executeCommand('su.openSettings');
@@ -79,6 +100,24 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         void this.pushStatus();
       }
     });
+  }
+
+  private loadHistory(): ChatMessage[] {
+    const raw = this.context.workspaceState.get<ChatMessage[]>(HISTORY_KEY, []);
+    if (!Array.isArray(raw)) {
+      return [];
+    }
+    return raw
+      .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+      .slice(-MAX_HISTORY);
+  }
+
+  private async saveHistory(): Promise<void> {
+    const trimmed = this.history
+      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      .slice(-MAX_HISTORY);
+    this.history = trimmed;
+    await this.context.workspaceState.update(HISTORY_KEY, trimmed);
   }
 
   private async pushStatus(): Promise<void> {
@@ -112,6 +151,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
 
     this.history.push({ role: 'user', content: userContent });
+    await this.saveHistory();
     this.post({ type: 'user', text: userContent });
     this.post({ type: 'assistantStart' });
 
@@ -128,9 +168,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         messages: [
           {
             role: 'system',
-            content: 'You are Su, a helpful coding assistant embedded in the su editor. Reply in the user\'s language when possible.',
+            content:
+              'You are Su, a helpful coding assistant embedded in the su editor. Prefer Markdown. Reply in the user\'s language when possible.',
           },
-          ...this.history,
+          ...this.history.slice(-MAX_HISTORY),
         ],
         signal: this.abort.signal,
         onDelta: (delta) => {
@@ -140,6 +181,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       });
       if (assistant) {
         this.history.push({ role: 'assistant', content: assistant });
+        await this.saveHistory();
       }
       this.post({ type: 'assistantDone' });
     } catch (e) {
@@ -147,10 +189,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       if (message === '已停止生成') {
         if (assistant) {
           this.history.push({ role: 'assistant', content: assistant });
+          await this.saveHistory();
         }
         this.post({ type: 'stopped' });
       } else {
-        // Drop the failed user turn's incomplete assistant; keep user message for retry context.
         this.post({ type: 'error', message });
       }
     } finally {
@@ -192,44 +234,47 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       --btn2-fg: var(--vscode-button-secondaryForeground);
       --user-bg: color-mix(in srgb, var(--vscode-button-background) 22%, transparent);
       --ai-bg: color-mix(in srgb, var(--vscode-editor-background) 80%, transparent);
+      --code-bg: var(--vscode-textCodeBlock-background, rgba(127,127,127,.15));
+      --link: var(--vscode-textLink-foreground);
       --err: var(--vscode-errorForeground);
       --font: var(--vscode-font-family);
       --mono: var(--vscode-editor-font-family);
     }
     * { box-sizing: border-box; }
-    html, body {
-      height: 100%; margin: 0;
-      background: var(--bg); color: var(--fg);
-      font: 13px/1.45 var(--font);
-    }
+    html, body { height: 100%; margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.45 var(--font); }
     body { display: flex; flex-direction: column; }
-    header {
-      padding: 8px 10px; border-bottom: 1px solid var(--border);
-      display: flex; flex-direction: column; gap: 4px;
-    }
+    header { padding: 8px 10px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 4px; }
     header .title { font-weight: 600; }
     header .meta { color: var(--muted); font-size: 11px; word-break: break-all; }
     header .actions { display: flex; gap: 6px; flex-wrap: wrap; }
-    #thread {
-      flex: 1; overflow: auto; padding: 10px; display: flex; flex-direction: column; gap: 10px;
-    }
-    .msg {
-      padding: 8px 10px; border-radius: 8px; white-space: pre-wrap; word-break: break-word;
-      border: 1px solid var(--border);
-    }
-    .msg.user { background: var(--user-bg); align-self: flex-end; max-width: 95%; }
+    #thread { flex: 1; overflow: auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
+    .msg { padding: 8px 10px; border-radius: 8px; word-break: break-word; border: 1px solid var(--border); }
+    .msg.user { background: var(--user-bg); align-self: flex-end; max-width: 95%; white-space: pre-wrap; }
     .msg.assistant { background: var(--ai-bg); align-self: stretch; }
-    .msg.error { color: var(--err); border-color: color-mix(in srgb, var(--err) 40%, var(--border)); }
+    .msg.error { color: var(--err); white-space: pre-wrap; border-color: color-mix(in srgb, var(--err) 40%, var(--border)); }
     .msg .role { font-size: 10px; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: .04em; }
-    footer {
-      border-top: 1px solid var(--border); padding: 8px 10px;
-      display: flex; flex-direction: column; gap: 6px;
+    .msg .body.md h1, .msg .body.md h2, .msg .body.md h3 { margin: 0.6em 0 0.35em; line-height: 1.25; font-size: 1.05em; }
+    .msg .body.md p { margin: 0.4em 0; }
+    .msg .body.md ul, .msg .body.md ol { margin: 0.35em 0; padding-left: 1.3em; }
+    .msg .body.md code {
+      font-family: var(--mono); font-size: 12px; background: var(--code-bg);
+      padding: 0.1em 0.35em; border-radius: 4px;
     }
+    .msg .body.md pre {
+      margin: 0.5em 0; padding: 8px; overflow: auto; background: var(--code-bg);
+      border-radius: 6px; border: 1px solid var(--border);
+    }
+    .msg .body.md pre code { padding: 0; background: transparent; }
+    .msg .body.md a { color: var(--link); }
+    .msg .body.md blockquote {
+      margin: 0.4em 0; padding-left: 0.8em; border-left: 3px solid var(--border); color: var(--muted);
+    }
+    .msg.streaming .body { white-space: pre-wrap; }
+    footer { border-top: 1px solid var(--border); padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
     textarea {
       width: 100%; min-height: 64px; max-height: 160px; resize: vertical;
       background: var(--input-bg); color: var(--input-fg);
-      border: 1px solid var(--border); border-radius: 6px; padding: 8px;
-      font: 13px/1.4 var(--font);
+      border: 1px solid var(--border); border-radius: 6px; padding: 8px; font: 13px/1.4 var(--font);
     }
     .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .row label { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 12px; user-select: none; }
@@ -247,6 +292,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     <div class="title">Su Chat</div>
     <div class="meta" id="meta">加载中…</div>
     <div class="actions">
+      <button type="button" class="secondary" id="btnNew">新对话</button>
       <button type="button" class="secondary" id="btnKey">设置 API Key</button>
       <button type="button" class="secondary" id="btnSettings">中转 / 模型</button>
     </div>
@@ -260,7 +306,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       <button type="button" class="secondary" id="btnStop" disabled>停止</button>
       <button type="button" id="btnSend">发送</button>
     </div>
-    <div class="hint">快捷键 Ctrl+L / Cmd+L 打开本面板 · v0.2 流式 Chat</div>
+    <div class="hint">历史按工作区保存 · 流式结束后渲染 Markdown · Ctrl+L</div>
   </footer>
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
@@ -271,7 +317,47 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const btnStop = document.getElementById('btnStop');
     const includeSel = document.getElementById('includeSel');
     let streaming = false;
-    let currentAi = null;
+    let currentCard = null;
+    let currentBody = null;
+
+    function escapeHtml(s) {
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    /** Minimal Markdown → HTML after HTML-escaping (safe for model output). */
+    function renderMarkdown(src) {
+      const escaped = escapeHtml(src);
+      const fences = [];
+      let text = escaped.replace(/\`\`\`([\\w+-]*)\\n([\\s\\S]*?)\`\`\`/g, (_, lang, code) => {
+        const i = fences.length;
+        fences.push('<pre><code class="language-' + lang + '">' + code.replace(/\\n$/, '') + '</code></pre>');
+        return '\\x00FENCE' + i + '\\x00';
+      });
+      text = text.replace(/\`([^\`\\n]+)\`/g, '<code>$1</code>');
+      text = text.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+      text = text.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+      text = text.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+      text = text.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>');
+      text = text.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');
+      text = text.replace(/(?<!\\*)\\*([^*\\n]+)\\*(?!\\*)/g, '<em>$1</em>');
+      text = text.replace(/\\[([^\\]]+)\\]\\((https?:\\/\\/[^)\\s]+)\\)/g, '<a href="$2" title="$2">$1</a>');
+      text = text.replace(/^(?:- |\\* )(.+)$/gm, '<li>$1</li>');
+      text = text.replace(/(?:<li>.*<\\/li>\\n?)+/g, (m) => '<ul>' + m + '</ul>');
+      text = text.replace(/\\n{2,}/g, '</p><p>');
+      text = text.replace(/\\n/g, '<br>');
+      text = '<p>' + text + '</p>';
+      text = text.replace(/\\x00FENCE(\\d+)\\x00/g, (_, i) => fences[Number(i)]);
+      text = text.replace(/<p><\\/p>/g, '');
+      text = text.replace(/<p>(<h[1-3]>)/g, '$1').replace(/(<\\/h[1-3]>)<\\/p>/g, '$1');
+      text = text.replace(/<p>(<pre>)/g, '$1').replace(/(<\\/pre>)<\\/p>/g, '$1');
+      text = text.replace(/<p>(<ul>)/g, '$1').replace(/(<\\/ul>)<\\/p>/g, '$1');
+      text = text.replace(/<p>(<blockquote>)/g, '$1').replace(/(<\\/blockquote>)<\\/p>/g, '$1');
+      return text;
+    }
 
     function setStreaming(on) {
       streaming = on;
@@ -279,20 +365,35 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       btnStop.disabled = !on;
     }
 
-    function addMsg(role, text, cls) {
+    function addMsg(role, text, cls, asMarkdown) {
       const el = document.createElement('div');
       el.className = 'msg ' + (cls || role);
       const r = document.createElement('div');
       r.className = 'role';
       r.textContent = role;
       const b = document.createElement('div');
-      b.className = 'body';
-      b.textContent = text || '';
+      b.className = 'body' + (asMarkdown ? ' md' : '');
+      if (asMarkdown) {
+        b.innerHTML = renderMarkdown(text || '');
+      } else {
+        b.textContent = text || '';
+      }
       el.appendChild(r);
       el.appendChild(b);
       thread.appendChild(el);
       thread.scrollTop = thread.scrollHeight;
-      return b;
+      return { card: el, body: b };
+    }
+
+    function finishAssistantMarkdown() {
+      if (!currentCard || !currentBody) return;
+      currentCard.classList.remove('streaming');
+      const raw = currentBody.textContent || '';
+      currentBody.classList.add('md');
+      currentBody.innerHTML = renderMarkdown(raw);
+      currentCard = null;
+      currentBody = null;
+      thread.scrollTop = thread.scrollHeight;
     }
 
     function send() {
@@ -305,12 +406,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     btnSend.addEventListener('click', send);
     btnStop.addEventListener('click', () => vscode.postMessage({ type: 'stop' }));
+    document.getElementById('btnNew').addEventListener('click', () => vscode.postMessage({ type: 'newChat' }));
     document.getElementById('btnKey').addEventListener('click', () => vscode.postMessage({ type: 'setApiKey' }));
     document.getElementById('btnSettings').addEventListener('click', () => vscode.postMessage({ type: 'openSettings' }));
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         send();
+      }
+    });
+    thread.addEventListener('click', (e) => {
+      const a = e.target.closest && e.target.closest('a');
+      if (a && a.href) {
+        e.preventDefault();
       }
     });
 
@@ -320,28 +428,48 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         case 'status':
           meta.textContent = (msg.hasKey ? 'Key ✓' : 'Key ✗') + ' · ' + msg.model + ' · ' + msg.baseUrl;
           break;
+        case 'restore':
+          thread.innerHTML = '';
+          (msg.messages || []).forEach((m) => {
+            if (m.role === 'user') addMsg('you', m.content, 'user', false);
+            else addMsg('su', m.content, 'assistant', true);
+          });
+          break;
+        case 'cleared':
+          thread.innerHTML = '';
+          currentCard = null;
+          currentBody = null;
+          setStreaming(false);
+          break;
         case 'user':
-          addMsg('you', msg.text, 'user');
+          addMsg('you', msg.text, 'user', false);
           break;
-        case 'assistantStart':
+        case 'assistantStart': {
           setStreaming(true);
-          currentAi = addMsg('su', '', 'assistant');
+          const node = addMsg('su', '', 'assistant streaming', false);
+          currentCard = node.card;
+          currentBody = node.body;
           break;
+        }
         case 'assistantDelta':
-          if (currentAi) {
-            currentAi.textContent += msg.text;
+          if (currentBody) {
+            currentBody.textContent += msg.text;
             thread.scrollTop = thread.scrollHeight;
           }
           break;
         case 'assistantDone':
         case 'stopped':
+          finishAssistantMarkdown();
           setStreaming(false);
-          currentAi = null;
           break;
         case 'error':
           setStreaming(false);
-          currentAi = null;
-          addMsg('error', msg.message, 'error');
+          if (currentCard) {
+            currentCard.remove();
+            currentCard = null;
+            currentBody = null;
+          }
+          addMsg('error', msg.message, 'error', false);
           break;
       }
     });

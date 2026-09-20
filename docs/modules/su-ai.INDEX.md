@@ -24,7 +24,8 @@
 - 命令：`su.openSettings` — 打开中转/模型设置（`@ext:su.su-ai`）
 - 命令：`su.setApiKey` / `su.clearApiKey` — SecretStorage 读写密钥
 - 命令：`su.checkForUpdates` — 检查 GitHub Releases
-- 侧栏活动栏 **Su AI → Chat**：流式对话、停止、可选附带编辑器选区
+- 侧栏活动栏 **Su AI → Chat**：流式对话、停止、可选附带编辑器选区、工作区历史、「新对话」、流式结束后 Markdown 渲染
+- 历史：`workspaceState` 键 `su.chat.history`（最多 40 条）
 - 配置：`su.baseUrl` / `su.model` / `su.timeoutMs`（`su.apiKey` 设置项已弃用，仅迁移用）
 - 更新配置：`su.update.*`
 - 产品版本：`0.2.0`
