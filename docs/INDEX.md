@@ -11,7 +11,7 @@
 | [modules/patches.INDEX.md](modules/patches.INDEX.md) | 补丁清单 |
 | [decisions/](decisions/) | ADR 重大决策 |
 | [acceptance/v0.1.md](acceptance/v0.1.md) | v0.1 验收清单 |
-| [acceptance/v0.2.md](acceptance/v0.2.md) | v0.2 验收清单（占位） |
+| [acceptance/v0.2.md](acceptance/v0.2.md) | v0.2 验收清单（Chat + 中转） |
 | [acceptance/v0.3.md](acceptance/v0.3.md) | v0.3 验收清单（占位） |
 | [acceptance/v0.4.md](acceptance/v0.4.md) | v0.4 验收清单（占位） |
 | [acceptance/v0.5.md](acceptance/v0.5.md) | v0.5 验收清单（占位） |

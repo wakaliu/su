@@ -1,8 +1,8 @@
 {
   "name": "su-ai",
   "displayName": "Su AI",
-  "description": "Built-in AI assistant for su editor (OpenAI-compatible models).",
-  "version": "0.1.0",
+  "description": "Built-in AI assistant for su editor (OpenAI-compatible Chat).",
+  "version": "0.2.0",
   "publisher": "su",
   "engines": {
     "vscode": "^1.136.0"
@@ -17,16 +17,41 @@
   "contributes": {
     "commands": [
       {
+        "command": "su.openChat",
+        "title": "Su: 打开 Chat",
+        "category": "Su",
+        "icon": "$(comment-discussion)"
+      },
+      {
         "command": "su.openSettings",
         "title": "Su: AI 配置（中转/模型）",
         "category": "Su",
         "icon": "$(gear)"
       },
       {
+        "command": "su.setApiKey",
+        "title": "Su: 设置 API Key",
+        "category": "Su",
+        "icon": "$(key)"
+      },
+      {
+        "command": "su.clearApiKey",
+        "title": "Su: 清除 API Key",
+        "category": "Su"
+      },
+      {
         "command": "su.checkForUpdates",
         "title": "Su: 检查更新",
         "category": "Su",
         "icon": "$(cloud-download)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "su.openChat",
+        "key": "ctrl+l",
+        "mac": "cmd+l",
+        "when": "!terminalFocus"
       }
     ],
     "submenus": [
@@ -46,12 +71,24 @@
         {
           "command": "su.openSettings",
           "group": "4_su@1"
+        },
+        {
+          "command": "su.setApiKey",
+          "group": "4_su@2"
         }
       ],
       "su.menubar": [
         {
+          "command": "su.openChat",
+          "group": "1_chat@1"
+        },
+        {
           "command": "su.openSettings",
-          "group": "1_config@1"
+          "group": "1_chat@2"
+        },
+        {
+          "command": "su.setApiKey",
+          "group": "1_chat@3"
         },
         {
           "command": "su.checkForUpdates",
@@ -61,13 +98,18 @@
       "view/title": [
         {
           "command": "su.openSettings",
-          "when": "view == su.aiConfig",
-          "group": "navigation"
+          "when": "view == su.chat",
+          "group": "navigation@1"
+        },
+        {
+          "command": "su.setApiKey",
+          "when": "view == su.chat",
+          "group": "navigation@2"
         },
         {
           "command": "su.checkForUpdates",
-          "when": "view == su.aiConfig",
-          "group": "navigation"
+          "when": "view == su.chat",
+          "group": "navigation@3"
         }
       ]
     },
@@ -83,29 +125,24 @@
     "views": {
       "su-ai": [
         {
-          "id": "su.aiConfig",
-          "name": "AI 配置"
+          "type": "webview",
+          "id": "su.chat",
+          "name": "Chat"
         }
       ]
     },
-    "viewsWelcome": [
-      {
-        "view": "su.aiConfig",
-        "contents": "配置 OpenAI 兼容中转与模型（v0.1 占位；Chat 在 v0.2）。\n[打开 AI 配置](command:su.openSettings)\n[检查更新](command:su.checkForUpdates)\n\n设置项：`su.baseUrl` / `su.apiKey` / `su.model`"
-      }
-    ],
     "configuration": {
       "title": "Su",
       "properties": {
         "su.baseUrl": {
           "type": "string",
           "default": "https://api.openai.com/v1",
-          "description": "OpenAI-compatible API base URL (中转/代理 Base URL，需含 /v1)。"
+          "description": "OpenAI-compatible API base URL（中转 Base URL，需含 /v1）。"
         },
         "su.apiKey": {
           "type": "string",
           "default": "",
-          "description": "API key（v0.1 明文占位；v0.2 将改用 SecretStorage）。"
+          "markdownDescription": "**已弃用。** 请用命令 `Su: 设置 API Key`（SecretStorage）。若仍有旧值，启动时会自动迁移并清空。"
         },
         "su.model": {
           "type": "string",
