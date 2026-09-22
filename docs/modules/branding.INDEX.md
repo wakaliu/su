@@ -25,4 +25,15 @@
 
 ## 验证
 
-启动后窗口标题/关于页显示 su；用户数据目录为 `.su`。
+启动后窗口标题/关于页显示 su；用户数据目录为 `.su`（实际路径 `%APPDATA%\su`）。
+
+预期**经典编辑器**主界面：欢迎页大字 **su**、菜单 **文件/帮助**、状态栏 **Su Chat**。  
+若出现 Pitch your idea / Sessions / MCP Servers，那是上游 vscode 1.136 的 **Agents/Sessions** 窗口（不是 Cursor）；运行 `scripts/reset-ui-state.ps1` 或确认 `product.overlay.json` 的 `configurationDefaults` 已生效。
+
+## 默认配置（overlay → configurationDefaults）
+
+| 键 | 值 | 目的 |
+|----|----|------|
+| `chat.disableAIFeatures` | `true` | 关闭微软 Agents/Chat 壳，改用 su-ai |
+| `workbench.startupEditor` | `welcomePage` | 启动显示欢迎页 |
+| `window.restoreWindows` | `none` | 避免恢复上次的 `agent-sessions.code-workspace` |

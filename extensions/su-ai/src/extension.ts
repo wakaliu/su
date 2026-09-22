@@ -3,6 +3,7 @@ import { getSuConfig } from './config';
 import { ChatViewProvider } from './chat/chatViewProvider';
 import { clearApiKey, promptAndSetApiKey } from './secrets';
 import { UpdateService } from './update';
+import { preferClassicWorkbench } from './workbench';
 
 /** Opens Settings focused on Su AI relay/model fields (not a fuzzy "su" search). */
 async function openSuAiSettings(): Promise<void> {
@@ -13,6 +14,9 @@ async function openSuAiSettings(): Promise<void> {
  * Activates Su AI: Chat sidebar, SecretStorage key commands, and update checks.
  */
 export function activate(context: vscode.ExtensionContext): void {
+  // vscode 1.136 may restore Agents/Sessions ("Pitch your idea") as last window.
+  void preferClassicWorkbench(context);
+
   const chat = new ChatViewProvider(context);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(ChatViewProvider.viewType, chat, {

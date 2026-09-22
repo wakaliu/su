@@ -114,5 +114,6 @@ npm run compile
 | `TypeError ... reading 'x64'`（`gulpfile.vscode.ts` 打包 win32） | overlay `quality: "stable"` 触发 stable/insider 专属 Appx 分支，需要 `win32ContextMenu` 等 MS 内部 product 字段；OSS 应设 `quality: "oss"`（不进该分支） |
 | `ENOENT ... out-vscode-min\...\preload.js` | `*-min-ci` 需要先 `minify-vscode`；su 用 `bundle-vscode` + `vscode-win32-x64-ci`（非 min，与 without-mangling 一致） |
 | `Invalid extension "version": "0.1"`（vsce） | `inject-extension.ps1` 曾用 `ConvertTo-Json` 回写 package.json，可能把 `0.1.0` 收成数字 `0.1`；已改为正则戳完整 semver |
+| 启动后是 Pitch your idea / Sessions / MCP（像 Cursor） | **不是 Cursor**。vscode 1.136 自带 Agents/Sessions 窗；若 `%APPDATA%\su` 把 `agent-sessions.code-workspace` 记成上次窗口就会每次恢复。运行 `.\scripts\reset-ui-state.ps1` 后重开；新包带 `configurationDefaults`（关微软 AI 壳、不恢复上次窗） |
 | Copilot ripgrep shim throw | OSS 跳过 Copilot；`apply-patches.ps1` 将缺失 SDK 改为 skip（见 patches 0001） |
 | GitHub API 403 ripgrep | Actions 已注入 `GITHUB_TOKEN`；本机可设 PAT 到 `GITHUB_TOKEN` |

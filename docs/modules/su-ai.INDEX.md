@@ -14,6 +14,7 @@
 | `extensions/su-ai/src/secrets.ts` | API Key ↔ SecretStorage（含 v0.1 明文迁移） |
 | `extensions/su-ai/src/openaiClient.ts` | OpenAI 兼容 `chat/completions` SSE 流式客户端 |
 | `extensions/su-ai/src/chat/chatViewProvider.ts` | 侧栏 Chat（Ctrl+L） |
+| `extensions/su-ai/src/workbench.ts` | 若误进上游 Agents/Sessions 窗则跳回经典编辑器 |
 | `extensions/su-ai/src/update.ts` | GitHub Releases 检查 / 下载提示 |
 | `extensions/su-ai/src/version.ts` | 产品版本与 semver 比较 |
 | `extensions/su-ai/version.json` | 注入的产品版本戳（源：`branding/version.json`） |

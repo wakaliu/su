@@ -17,5 +17,10 @@
     "resourceUrlTemplate": "https://open-vsx.org/vscode/unpkg/{publisher}/{name}/{version}/{path}",
     "controlUrl": "",
     "recommendationsUrl": ""
+  },
+  "configurationDefaults": {
+    "chat.disableAIFeatures": true,
+    "workbench.startupEditor": "welcomePage",
+    "window.restoreWindows": "none"
   }
 }
