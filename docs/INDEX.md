@@ -13,7 +13,8 @@
 | [acceptance/v0.1.md](acceptance/v0.1.md) | v0.1 验收清单 |
 | [acceptance/v0.2.md](acceptance/v0.2.md) | v0.2 验收清单（Chat + 中转） |
 | [acceptance/v0.3.md](acceptance/v0.3.md) | v0.3 验收清单（Ghost Text） |
-| [acceptance/v0.4.md](acceptance/v0.4.md) | v0.4 验收清单（占位） |
+| [acceptance/v0.4.md](acceptance/v0.4.md) | v0.4 验收清单（Agent + Diff） |
+| [decisions/ADR-0002-agent-tool-boundary.md](decisions/ADR-0002-agent-tool-boundary.md) | Agent 工具边界 |
 | [acceptance/v0.5.md](acceptance/v0.5.md) | v0.5 验收清单（占位） |
 
 根目录入口：[AGENTS.md](../AGENTS.md) · [ROADMAP.md](../ROADMAP.md)

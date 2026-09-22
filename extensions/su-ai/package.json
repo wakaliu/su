@@ -1,8 +1,8 @@
 {
   "name": "su-ai",
   "displayName": "Su AI",
-  "description": "Built-in AI assistant for su editor (OpenAI-compatible Chat + Ghost Text).",
-  "version": "0.3.0",
+  "description": "Built-in AI assistant for su (Chat, Ghost Text, Agent + Diff).",
+  "version": "0.4.0",
   "publisher": "su",
   "engines": {
     "vscode": "^1.136.0"
@@ -50,6 +50,22 @@
         "title": "Su: 切换 Ghost Text",
         "category": "Su",
         "icon": "$(sparkle)"
+      },
+      {
+        "command": "su.reviewAgentDiffs",
+        "title": "Su: 审阅 Agent 改动",
+        "category": "Su",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "su.keepAllAgentDiffs",
+        "title": "Su: Keep 全部 Agent 改动",
+        "category": "Su"
+      },
+      {
+        "command": "su.rejectAllAgentDiffs",
+        "title": "Su: Reject 全部 Agent 改动",
+        "category": "Su"
       }
     ],
     "keybindings": [
@@ -99,6 +115,10 @@
         {
           "command": "su.toggleGhostText",
           "group": "1_chat@4"
+        },
+        {
+          "command": "su.reviewAgentDiffs",
+          "group": "1_chat@5"
         },
         {
           "command": "su.checkForUpdates",
@@ -182,6 +202,18 @@
           "minimum": 16,
           "maximum": 512,
           "description": "单次行内补全的 max_tokens。"
+        },
+        "su.agent.maxSteps": {
+          "type": "number",
+          "default": 12,
+          "minimum": 1,
+          "maximum": 30,
+          "description": "Agent 单轮最大工具调用步数。"
+        },
+        "su.agent.enableTerminal": {
+          "type": "boolean",
+          "default": true,
+          "description": "允许 Agent 使用 run_terminal（每次仍需确认）。"
         },
         "su.update.checkOnStartup": {
           "type": "boolean",

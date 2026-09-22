@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import { resolveSuRuntimeConfig } from '../config';
 import { streamChatCompletion, type ChatMessage } from '../openaiClient';
 import { promptAndSetApiKey } from '../secrets';
+import { runAgent } from '../agent/agentRunner';
+import { DiffReviewService } from '../agent/diffReview';
 
 const HISTORY_KEY = 'su.chat.history';
 /** Max messages kept for API context + persistence (user+assistant pairs). */
@@ -9,19 +11,21 @@ const MAX_HISTORY = 40;
 
 type WebviewToExt =
   | { type: 'ready' }
-  | { type: 'send'; text: string; includeSelection: boolean }
+  | { type: 'send'; text: string; includeSelection: boolean; mode: 'chat' | 'agent' }
   | { type: 'stop' }
   | { type: 'openSettings' }
   | { type: 'setApiKey' }
-  | { type: 'newChat' };
+  | { type: 'newChat' }
+  | { type: 'reviewDiffs' };
 
 type ExtToWebview =
-  | { type: 'status'; hasKey: boolean; model: string; baseUrl: string }
+  | { type: 'status'; hasKey: boolean; model: string; baseUrl: string; pendingDiffs: number }
   | { type: 'restore'; messages: Array<{ role: 'user' | 'assistant'; content: string }> }
   | { type: 'user'; text: string }
   | { type: 'assistantStart' }
   | { type: 'assistantDelta'; text: string }
   | { type: 'assistantDone' }
+  | { type: 'tool'; text: string }
   | { type: 'error'; message: string }
   | { type: 'stopped' }
   | { type: 'cleared' };
@@ -35,9 +39,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private view?: vscode.WebviewView;
   private abort?: AbortController;
   private history: ChatMessage[] = [];
+  readonly diffs: DiffReviewService;
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.history = this.loadHistory();
+    this.diffs = new DiffReviewService();
   }
 
   /**
@@ -67,12 +73,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           this.post({
             type: 'restore',
             messages: this.history
-              .filter((m): m is ChatMessage & { role: 'user' | 'assistant' } => m.role === 'user' || m.role === 'assistant')
+              .filter(
+                (m): m is ChatMessage & { role: 'user' | 'assistant'; content: string } =>
+                  (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string',
+              )
               .map((m) => ({ role: m.role, content: m.content })),
           });
           break;
         case 'send':
-          await this.handleSend(raw.text, raw.includeSelection);
+          await this.handleSend(raw.text, raw.includeSelection, raw.mode === 'agent' ? 'agent' : 'chat');
           break;
         case 'stop':
           this.abort?.abort();
@@ -82,6 +91,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           this.history = [];
           await this.saveHistory();
           this.post({ type: 'cleared' });
+          break;
+        case 'reviewDiffs':
+          await vscode.commands.executeCommand('su.reviewAgentDiffs');
           break;
         case 'openSettings':
           await vscode.commands.executeCommand('su.openSettings');
@@ -108,13 +120,24 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       return [];
     }
     return raw
-      .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+      .filter(
+        (m) =>
+          m &&
+          (m.role === 'user' || m.role === 'assistant') &&
+          typeof m.content === 'string' &&
+          m.content.length > 0,
+      )
       .slice(-MAX_HISTORY);
   }
 
   private async saveHistory(): Promise<void> {
     const trimmed = this.history
-      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      .filter(
+        (m) =>
+          (m.role === 'user' || m.role === 'assistant') &&
+          typeof m.content === 'string' &&
+          m.content.length > 0,
+      )
       .slice(-MAX_HISTORY);
     this.history = trimmed;
     await this.context.workspaceState.update(HISTORY_KEY, trimmed);
@@ -127,10 +150,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       hasKey: Boolean(cfg.apiKey),
       model: cfg.model,
       baseUrl: cfg.baseUrl,
+      pendingDiffs: this.diffs.size,
     });
   }
 
-  private async handleSend(text: string, includeSelection: boolean): Promise<void> {
+  private async handleSend(
+    text: string,
+    includeSelection: boolean,
+    mode: 'chat' | 'agent',
+  ): Promise<void> {
     const trimmed = text.trim();
     if (!trimmed) {
       return;
@@ -157,8 +185,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     const cfg = await resolveSuRuntimeConfig(this.context);
     this.abort = new AbortController();
-    let assistant = '';
 
+    if (mode === 'agent') {
+      await this.runAgentTurn(userContent, cfg);
+      return;
+    }
+
+    let assistant = '';
     try {
       await streamChatCompletion({
         baseUrl: cfg.baseUrl,
@@ -171,7 +204,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             content:
               'You are Su, a helpful coding assistant embedded in the su editor. Prefer Markdown. Reply in the user\'s language when possible.',
           },
-          ...this.history.slice(-MAX_HISTORY),
+          ...this.history
+            .filter((m) => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+            .slice(-MAX_HISTORY) as ChatMessage[],
         ],
         signal: this.abort.signal,
         onDelta: (delta) => {
@@ -197,6 +232,68 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       }
     } finally {
       this.abort = undefined;
+      await this.pushStatus();
+    }
+  }
+
+  private async runAgentTurn(
+    userContent: string,
+    cfg: { baseUrl: string; apiKey: string; model: string; timeoutMs: number },
+  ): Promise<void> {
+    let assistant = '';
+    try {
+      await runAgent({
+        baseUrl: cfg.baseUrl,
+        apiKey: cfg.apiKey,
+        model: cfg.model,
+        timeoutMs: cfg.timeoutMs,
+        userText: userContent,
+        history: this.history.slice(0, -1),
+        signal: this.abort?.signal,
+        diffs: this.diffs,
+        onEvent: (ev) => {
+          if (ev.type === 'tool') {
+            this.post({ type: 'tool', text: ev.detail });
+          } else if (ev.type === 'assistant') {
+            assistant = ev.text;
+            this.post({ type: 'assistantDelta', text: ev.text });
+          } else if (ev.type === 'done') {
+            if (assistant) {
+              // already streamed as one chunk
+            } else if (ev.summary) {
+              assistant = ev.summary;
+              this.post({ type: 'assistantDelta', text: ev.summary });
+            }
+          }
+        },
+      });
+      if (!assistant) {
+        assistant = this.diffs.size
+          ? `任务结束。待审改动 ${this.diffs.size} 个文件。`
+          : '任务结束。';
+        this.post({ type: 'assistantDelta', text: assistant });
+      } else if (this.diffs.size) {
+        const tip = `\n\n— 待审 ${this.diffs.size} 个文件：用命令「Su: 审阅 Agent 改动」Keep/Reject。`;
+        assistant += tip;
+        this.post({ type: 'assistantDelta', text: tip });
+      }
+      this.history.push({ role: 'assistant', content: assistant });
+      await this.saveHistory();
+      this.post({ type: 'assistantDone' });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      if (message === '已停止生成') {
+        if (assistant) {
+          this.history.push({ role: 'assistant', content: assistant });
+          await this.saveHistory();
+        }
+        this.post({ type: 'stopped' });
+      } else {
+        this.post({ type: 'error', message });
+      }
+    } finally {
+      this.abort = undefined;
+      await this.pushStatus();
     }
   }
 
@@ -284,6 +381,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
     button.secondary { background: var(--btn2-bg); color: var(--btn2-fg); }
     button:disabled { opacity: .55; cursor: default; }
+    .msg.tool { align-self: stretch; color: var(--muted); font-size: 12px; white-space: pre-wrap; }
+    .mode-seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+    .mode-seg button { border-radius: 0; padding: 4px 10px; background: transparent; color: var(--fg); }
+    .mode-seg button.active { background: var(--btn-bg); color: var(--btn-fg); }
     .hint { color: var(--muted); font-size: 11px; }
   </style>
 </head>
@@ -292,7 +393,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     <div class="title">Su Chat</div>
     <div class="meta" id="meta">加载中…</div>
     <div class="actions">
+      <div class="mode-seg" title="对话模式 / Agent 改文件">
+        <button type="button" id="modeChat" class="active">Chat</button>
+        <button type="button" id="modeAgent">Agent</button>
+      </div>
       <button type="button" class="secondary" id="btnNew">新对话</button>
+      <button type="button" class="secondary" id="btnReview">审阅 Diff</button>
       <button type="button" class="secondary" id="btnKey">设置 API Key</button>
       <button type="button" class="secondary" id="btnSettings">中转 / 模型</button>
     </div>
@@ -306,7 +412,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       <button type="button" class="secondary" id="btnStop" disabled>停止</button>
       <button type="button" id="btnSend">发送</button>
     </div>
-    <div class="hint">历史按工作区保存 · 流式结束后渲染 Markdown · Ctrl+L</div>
+    <div class="hint">Agent 可改工作区文件；写后需 Keep/Reject · Ctrl+L</div>
   </footer>
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
@@ -316,9 +422,23 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const btnSend = document.getElementById('btnSend');
     const btnStop = document.getElementById('btnStop');
     const includeSel = document.getElementById('includeSel');
+    const modeChat = document.getElementById('modeChat');
+    const modeAgent = document.getElementById('modeAgent');
+    let mode = 'chat';
     let streaming = false;
     let currentCard = null;
     let currentBody = null;
+
+    function setMode(m) {
+      mode = m;
+      modeChat.classList.toggle('active', m === 'chat');
+      modeAgent.classList.toggle('active', m === 'agent');
+      input.placeholder = m === 'agent'
+        ? '给 Agent 下任务…（会读写工作区，写后需审阅）'
+        : '问 Su…（Enter 发送，Shift+Enter 换行）';
+    }
+    modeChat.addEventListener('click', () => setMode('chat'));
+    modeAgent.addEventListener('click', () => setMode('agent'));
 
     function escapeHtml(s) {
       return String(s)
@@ -401,12 +521,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       const text = input.value;
       if (!text.trim()) return;
       input.value = '';
-      vscode.postMessage({ type: 'send', text, includeSelection: includeSel.checked });
+      vscode.postMessage({ type: 'send', text, includeSelection: includeSel.checked, mode });
     }
 
     btnSend.addEventListener('click', send);
     btnStop.addEventListener('click', () => vscode.postMessage({ type: 'stop' }));
     document.getElementById('btnNew').addEventListener('click', () => vscode.postMessage({ type: 'newChat' }));
+    document.getElementById('btnReview').addEventListener('click', () => vscode.postMessage({ type: 'reviewDiffs' }));
     document.getElementById('btnKey').addEventListener('click', () => vscode.postMessage({ type: 'setApiKey' }));
     document.getElementById('btnSettings').addEventListener('click', () => vscode.postMessage({ type: 'openSettings' }));
     input.addEventListener('keydown', (e) => {
@@ -426,7 +547,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       const msg = event.data;
       switch (msg.type) {
         case 'status':
-          meta.textContent = (msg.hasKey ? 'Key ✓' : 'Key ✗') + ' · ' + msg.model + ' · ' + msg.baseUrl;
+          meta.textContent = (msg.hasKey ? 'Key ✓' : 'Key ✗') + ' · ' + msg.model + ' · ' + msg.baseUrl
+            + (msg.pendingDiffs ? (' · 待审 ' + msg.pendingDiffs) : '');
           break;
         case 'restore':
           thread.innerHTML = '';
@@ -456,6 +578,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             currentBody.textContent += msg.text;
             thread.scrollTop = thread.scrollHeight;
           }
+          break;
+        case 'tool':
+          addMsg('tool', msg.text, 'tool', false);
           break;
         case 'assistantDone':
         case 'stopped':

@@ -1,6 +1,14 @@
 export interface ChatMessage {
-  role: 'system' | 'user' | 'assistant';
-  content: string;
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  content: string | null;
+  tool_calls?: ToolCall[];
+  tool_call_id?: string;
+}
+
+export interface ToolCall {
+  id: string;
+  type: 'function';
+  function: { name: string; arguments: string };
 }
 
 export interface StreamChatOptions {
@@ -22,6 +30,22 @@ export interface CompleteChatOptions {
   maxTokens?: number;
   temperature?: number;
   signal?: AbortSignal;
+}
+
+export interface ToolChatOptions {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  messages: ChatMessage[];
+  tools: unknown[];
+  timeoutMs: number;
+  signal?: AbortSignal;
+}
+
+export interface ToolChatResult {
+  content: string;
+  tool_calls?: ToolCall[];
+  finish_reason?: string;
 }
 
 /**
@@ -80,6 +104,72 @@ export async function completeChat(opts: CompleteChatOptions): Promise<string> {
       throw new Error(json.error.message);
     }
     return (json.choices?.[0]?.message?.content || '').trimEnd();
+  } catch (e) {
+    if (opts.signal?.aborted || (e instanceof Error && e.name === 'AbortError')) {
+      throw new Error('已停止生成');
+    }
+    throw e instanceof Error ? e : new Error(String(e));
+  } finally {
+    clearTimeout(timer);
+    opts.signal?.removeEventListener('abort', onAbort);
+  }
+}
+
+/**
+ * Non-streaming chat.completions with tools (Agent loop step).
+ */
+export async function completeChatWithTools(opts: ToolChatOptions): Promise<ToolChatResult> {
+  if (!opts.apiKey) {
+    throw new Error('未配置 API Key。请运行「Su: 设置 API Key」。');
+  }
+  if (!opts.baseUrl) {
+    throw new Error('未配置 Base URL（su.baseUrl）。');
+  }
+
+  const url = joinApiUrl(opts.baseUrl, 'chat/completions');
+  const controller = new AbortController();
+  const onAbort = (): void => controller.abort();
+  opts.signal?.addEventListener('abort', onAbort, { once: true });
+  const timer = setTimeout(() => controller.abort(), Math.max(1000, opts.timeoutMs));
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${opts.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: opts.model,
+        messages: opts.messages,
+        tools: opts.tools,
+        tool_choice: 'auto',
+        stream: false,
+      }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(formatHttpError(res.status, body));
+    }
+
+    const json = (await res.json()) as {
+      choices?: Array<{
+        message?: { content?: string | null; tool_calls?: ToolCall[] };
+        finish_reason?: string;
+      }>;
+      error?: { message?: string };
+    };
+    if (json.error?.message) {
+      throw new Error(json.error.message);
+    }
+    const msg = json.choices?.[0]?.message;
+    return {
+      content: (msg?.content || '').trim(),
+      tool_calls: msg?.tool_calls,
+      finish_reason: json.choices?.[0]?.finish_reason,
+    };
   } catch (e) {
     if (opts.signal?.aborted || (e instanceof Error && e.name === 'AbortError')) {
       throw new Error('已停止生成');

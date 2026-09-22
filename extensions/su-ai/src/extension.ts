@@ -20,10 +20,9 @@ async function toggleGhostText(): Promise<void> {
 }
 
 /**
- * Activates Su AI: Chat, Ghost Text, SecretStorage keys, and update checks.
+ * Activates Su AI: Chat, Agent diffs, Ghost Text, and update checks.
  */
 export function activate(context: vscode.ExtensionContext): void {
-  // vscode 1.136 may restore Agents/Sessions ("Pitch your idea") as last window.
   void preferClassicWorkbench(context);
 
   const chat = new ChatViewProvider(context);
@@ -47,6 +46,15 @@ export function activate(context: vscode.ExtensionContext): void {
       void vscode.window.showInformationMessage('API Key 已清除。');
     }),
     vscode.commands.registerCommand('su.toggleGhostText', () => toggleGhostText()),
+    vscode.commands.registerCommand('su.reviewAgentDiffs', () => reviewDiffs(chat)),
+    vscode.commands.registerCommand('su.keepAllAgentDiffs', async () => {
+      const n = await chat.diffs.keepAll();
+      void vscode.window.showInformationMessage(n ? `已 Keep ${n} 个文件。` : '没有待审改动。');
+    }),
+    vscode.commands.registerCommand('su.rejectAllAgentDiffs', async () => {
+      const n = await chat.diffs.rejectAll();
+      void vscode.window.showInformationMessage(n ? `已 Reject ${n} 个文件。` : '没有待审改动。');
+    }),
   );
 
   const updates = new UpdateService(context);
@@ -54,18 +62,72 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   status.text = '$(comment-discussion) Su Chat';
-  status.tooltip = '打开 Su Chat（Ctrl+L）· Ghost Text 见设置 su.ghostText';
+  status.tooltip = '打开 Su Chat / Agent（Ctrl+L）';
   status.command = 'su.openChat';
   status.show();
   context.subscriptions.push(status);
 
   const cfg = getSuConfig();
-  console.log(`[su-ai] activated v0.3; model=${cfg.model}; baseUrl=${cfg.baseUrl}; version=${updates.currentVersion}`);
+  console.log(`[su-ai] activated v0.4; model=${cfg.model}; baseUrl=${cfg.baseUrl}; version=${updates.currentVersion}`);
+}
+
+/**
+ * Lets the user pick a pending file to diff, then Keep or Reject.
+ */
+async function reviewDiffs(chat: ChatViewProvider): Promise<void> {
+  const items = chat.diffs.list();
+  if (!items.length) {
+    void vscode.window.showInformationMessage('没有待审的 Agent 改动。');
+    return;
+  }
+
+  const picked = await vscode.window.showQuickPick(
+    [
+      ...items.map((p) => ({
+        label: p.label,
+        description: p.original === null ? '新建' : '修改',
+        edit: p,
+      })),
+      { label: '$(check) Keep All', description: '保留全部当前磁盘内容', edit: undefined as undefined },
+      { label: '$(discard) Reject All', description: '全部恢复修改前', edit: undefined as undefined },
+    ],
+    { title: 'Su: 审阅 Agent 改动' },
+  );
+  if (!picked) {
+    return;
+  }
+  if (picked.label.includes('Keep All')) {
+    const n = await chat.diffs.keepAll();
+    void vscode.window.showInformationMessage(`已 Keep ${n} 个文件。`);
+    return;
+  }
+  if (picked.label.includes('Reject All')) {
+    const n = await chat.diffs.rejectAll();
+    void vscode.window.showInformationMessage(`已 Reject ${n} 个文件。`);
+    return;
+  }
+  if (!('edit' in picked) || !picked.edit) {
+    return;
+  }
+
+  await chat.diffs.openDiff(picked.edit.uri);
+  const action = await vscode.window.showInformationMessage(
+    `审阅 ${picked.edit.label}`,
+    'Keep',
+    'Reject',
+  );
+  if (action === 'Keep') {
+    await chat.diffs.keep(picked.edit.uri);
+    void vscode.window.showInformationMessage(`已 Keep ${picked.edit.label}`);
+  } else if (action === 'Reject') {
+    await chat.diffs.reject(picked.edit.uri);
+    void vscode.window.showInformationMessage(`已 Reject ${picked.edit.label}`);
+  }
 }
 
 /**
  * Disposes extension resources on shutdown.
  */
 export function deactivate(): void {
-  // webview / disposables cleaned via subscriptions
+  // subscriptions cleaned automatically
 }
