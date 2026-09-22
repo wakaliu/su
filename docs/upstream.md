@@ -13,6 +13,8 @@
 
 v0.1：无（空壳扩展不依赖 proposed）。
 
+v0.3：Ghost Text 使用稳定 API `InlineCompletionItemProvider`（无需 proposed）。
+
 后续在启用时登记：扩展 ID、proposal 名、用途、验证命令。
 
 ## Rebase 注意

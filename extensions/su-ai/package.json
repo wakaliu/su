@@ -1,8 +1,8 @@
 {
   "name": "su-ai",
   "displayName": "Su AI",
-  "description": "Built-in AI assistant for su editor (OpenAI-compatible Chat).",
-  "version": "0.2.0",
+  "description": "Built-in AI assistant for su editor (OpenAI-compatible Chat + Ghost Text).",
+  "version": "0.3.0",
   "publisher": "su",
   "engines": {
     "vscode": "^1.136.0"
@@ -44,6 +44,12 @@
         "title": "Su: 检查更新",
         "category": "Su",
         "icon": "$(cloud-download)"
+      },
+      {
+        "command": "su.toggleGhostText",
+        "title": "Su: 切换 Ghost Text",
+        "category": "Su",
+        "icon": "$(sparkle)"
       }
     ],
     "keybindings": [
@@ -89,6 +95,10 @@
         {
           "command": "su.setApiKey",
           "group": "1_chat@3"
+        },
+        {
+          "command": "su.toggleGhostText",
+          "group": "1_chat@4"
         },
         {
           "command": "su.checkForUpdates",
@@ -153,6 +163,25 @@
           "type": "number",
           "default": 60000,
           "description": "请求超时（毫秒）。"
+        },
+        "su.ghostText.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "启用 Ghost Text 行内补全（灰色预览，Tab 接受）。使用与 Chat 相同的中转 / Key / 模型。"
+        },
+        "su.ghostText.debounceMs": {
+          "type": "number",
+          "default": 400,
+          "minimum": 0,
+          "maximum": 5000,
+          "description": "Ghost Text 请求防抖（毫秒）。"
+        },
+        "su.ghostText.maxTokens": {
+          "type": "number",
+          "default": 96,
+          "minimum": 16,
+          "maximum": 512,
+          "description": "单次行内补全的 max_tokens。"
         },
         "su.update.checkOnStartup": {
           "type": "boolean",

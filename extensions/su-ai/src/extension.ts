@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { getSuConfig } from './config';
 import { ChatViewProvider } from './chat/chatViewProvider';
+import { GhostTextProvider } from './ghostText';
 import { clearApiKey, promptAndSetApiKey } from './secrets';
 import { UpdateService } from './update';
 import { preferClassicWorkbench } from './workbench';
@@ -10,8 +11,16 @@ async function openSuAiSettings(): Promise<void> {
   await vscode.commands.executeCommand('workbench.action.openSettings', '@ext:su.su-ai');
 }
 
+/** Toggles su.ghostText.enabled and reports the new state. */
+async function toggleGhostText(): Promise<void> {
+  const cfg = vscode.workspace.getConfiguration('su');
+  const next = !cfg.get<boolean>('ghostText.enabled', true);
+  await cfg.update('ghostText.enabled', next, vscode.ConfigurationTarget.Global);
+  void vscode.window.showInformationMessage(next ? 'Ghost Text 已开启。' : 'Ghost Text 已关闭。');
+}
+
 /**
- * Activates Su AI: Chat sidebar, SecretStorage key commands, and update checks.
+ * Activates Su AI: Chat, Ghost Text, SecretStorage keys, and update checks.
  */
 export function activate(context: vscode.ExtensionContext): void {
   // vscode 1.136 may restore Agents/Sessions ("Pitch your idea") as last window.
@@ -24,6 +33,11 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
+  const ghost = new GhostTextProvider(context);
+  context.subscriptions.push(
+    vscode.languages.registerInlineCompletionItemProvider({ pattern: '**' }, ghost),
+  );
+
   context.subscriptions.push(
     vscode.commands.registerCommand('su.openSettings', openSuAiSettings),
     vscode.commands.registerCommand('su.openChat', () => chat.open()),
@@ -32,6 +46,7 @@ export function activate(context: vscode.ExtensionContext): void {
       await clearApiKey(context);
       void vscode.window.showInformationMessage('API Key 已清除。');
     }),
+    vscode.commands.registerCommand('su.toggleGhostText', () => toggleGhostText()),
   );
 
   const updates = new UpdateService(context);
@@ -39,13 +54,13 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   status.text = '$(comment-discussion) Su Chat';
-  status.tooltip = '打开 Su Chat（Ctrl+L）· 配置中转/模型';
+  status.tooltip = '打开 Su Chat（Ctrl+L）· Ghost Text 见设置 su.ghostText';
   status.command = 'su.openChat';
   status.show();
   context.subscriptions.push(status);
 
   const cfg = getSuConfig();
-  console.log(`[su-ai] activated v0.2; model=${cfg.model}; baseUrl=${cfg.baseUrl}; version=${updates.currentVersion}`);
+  console.log(`[su-ai] activated v0.3; model=${cfg.model}; baseUrl=${cfg.baseUrl}; version=${updates.currentVersion}`);
 }
 
 /**

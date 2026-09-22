@@ -2,15 +2,15 @@
 
 ## 当前版本
 
-**进行中：v0.2 — 模型/中转配置 + Chat 流式主流程**
+**进行中：v0.3 — Ghost Text 行内补全**
 
 ## 版本一览
 
 | 版本 | 目标 | 状态 |
 |------|------|------|
-| v0.1 | Code-OSS 品牌壳、su-ai 空壳、Windows 打包、防幻觉体系 | 已完成（壳可用；持续用 CI 出包） |
-| v0.2 | 模型/中转配置 + Chat 流式主流程 | 进行中 |
-| v0.3 | Ghost Text 行内补全 | 未开始 |
+| v0.1 | Code-OSS 品牌壳、su-ai 空壳、Windows 打包、防幻觉体系 | 已完成 |
+| v0.2 | 模型/中转配置 + Chat 流式主流程 | 已完成（验收见 `docs/acceptance/v0.2.md`） |
+| v0.3 | Ghost Text 行内补全 | 进行中 |
 | v0.4 | Agent + Inline Diff（Keep/Reject） | 未开始 |
 | v0.5 | 轻量上下文、产品内 Rules、体验加固 | 未开始 |
 

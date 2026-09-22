@@ -13,6 +13,17 @@ export interface StreamChatOptions {
   onDelta: (text: string) => void;
 }
 
+export interface CompleteChatOptions {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  messages: ChatMessage[];
+  timeoutMs: number;
+  maxTokens?: number;
+  temperature?: number;
+  signal?: AbortSignal;
+}
+
 /**
  * Joins OpenAI-compatible base URL with a relative API path.
  */
@@ -20,6 +31,64 @@ export function joinApiUrl(baseUrl: string, pathPart: string): string {
   const base = baseUrl.replace(/\/+$/, '');
   const path = pathPart.replace(/^\/+/, '');
   return `${base}/${path}`;
+}
+
+/**
+ * Non-streaming chat.completions — used for short Ghost Text completions.
+ */
+export async function completeChat(opts: CompleteChatOptions): Promise<string> {
+  if (!opts.apiKey) {
+    throw new Error('未配置 API Key。请运行「Su: 设置 API Key」。');
+  }
+  if (!opts.baseUrl) {
+    throw new Error('未配置 Base URL（su.baseUrl）。');
+  }
+
+  const url = joinApiUrl(opts.baseUrl, 'chat/completions');
+  const controller = new AbortController();
+  const onAbort = (): void => controller.abort();
+  opts.signal?.addEventListener('abort', onAbort, { once: true });
+  const timer = setTimeout(() => controller.abort(), Math.max(1000, opts.timeoutMs));
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${opts.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: opts.model,
+        messages: opts.messages,
+        stream: false,
+        max_tokens: opts.maxTokens ?? 128,
+        temperature: opts.temperature ?? 0,
+      }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(formatHttpError(res.status, body));
+    }
+
+    const json = (await res.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+      error?: { message?: string };
+    };
+    if (json.error?.message) {
+      throw new Error(json.error.message);
+    }
+    return (json.choices?.[0]?.message?.content || '').trimEnd();
+  } catch (e) {
+    if (opts.signal?.aborted || (e instanceof Error && e.name === 'AbortError')) {
+      throw new Error('已停止生成');
+    }
+    throw e instanceof Error ? e : new Error(String(e));
+  } finally {
+    clearTimeout(timer);
+    opts.signal?.removeEventListener('abort', onAbort);
+  }
 }
 
 /**
