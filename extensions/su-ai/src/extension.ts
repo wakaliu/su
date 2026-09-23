@@ -2,13 +2,14 @@ import * as vscode from 'vscode';
 import { getSuConfig } from './config';
 import { ChatViewProvider } from './chat/chatViewProvider';
 import { GhostTextProvider } from './ghostText';
+import { editModelList } from './modelsUi';
 import { clearApiKey, promptAndSetApiKey } from './secrets';
 import { UpdateService } from './update';
 import { preferClassicWorkbench } from './workbench';
 
-/** Opens Settings focused on Su AI relay/model fields (not a fuzzy "su" search). */
+/** Opens Settings focused on multi-model list (Su › Models). */
 async function openSuAiSettings(): Promise<void> {
-  await vscode.commands.executeCommand('workbench.action.openSettings', '@ext:su.su-ai');
+  await vscode.commands.executeCommand('workbench.action.openSettings', '@id:su.models');
 }
 
 /** Toggles su.ghostText.enabled and reports the new state. */
@@ -39,6 +40,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     vscode.commands.registerCommand('su.openSettings', openSuAiSettings),
+    vscode.commands.registerCommand('su.editModels', () => editModelList()),
     vscode.commands.registerCommand('su.openChat', () => chat.open()),
     vscode.commands.registerCommand('su.setApiKey', () => promptAndSetApiKey(context)),
     vscode.commands.registerCommand('su.clearApiKey', async () => {

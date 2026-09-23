@@ -29,6 +29,12 @@
         "icon": "$(gear)"
       },
       {
+        "command": "su.editModels",
+        "title": "Su: 编辑模型列表",
+        "category": "Su",
+        "icon": "$(symbol-misc)"
+      },
+      {
         "command": "su.setApiKey",
         "title": "Su: 设置 API Key",
         "category": "Su",
@@ -95,8 +101,12 @@
           "group": "4_su@1"
         },
         {
-          "command": "su.setApiKey",
+          "command": "su.editModels",
           "group": "4_su@2"
+        },
+        {
+          "command": "su.setApiKey",
+          "group": "4_su@3"
         }
       ],
       "su.menubar": [
@@ -109,16 +119,20 @@
           "group": "1_chat@2"
         },
         {
-          "command": "su.setApiKey",
+          "command": "su.editModels",
           "group": "1_chat@3"
         },
         {
-          "command": "su.toggleGhostText",
+          "command": "su.setApiKey",
           "group": "1_chat@4"
         },
         {
-          "command": "su.reviewAgentDiffs",
+          "command": "su.toggleGhostText",
           "group": "1_chat@5"
+        },
+        {
+          "command": "su.reviewAgentDiffs",
+          "group": "1_chat@6"
         },
         {
           "command": "su.checkForUpdates",
@@ -127,19 +141,24 @@
       ],
       "view/title": [
         {
-          "command": "su.openSettings",
+          "command": "su.editModels",
           "when": "view == su.chat",
           "group": "navigation@1"
         },
         {
-          "command": "su.setApiKey",
+          "command": "su.openSettings",
           "when": "view == su.chat",
           "group": "navigation@2"
         },
         {
-          "command": "su.checkForUpdates",
+          "command": "su.setApiKey",
           "when": "view == su.chat",
           "group": "navigation@3"
+        },
+        {
+          "command": "su.checkForUpdates",
+          "when": "view == su.chat",
+          "group": "navigation@4"
         }
       ]
     },
@@ -177,7 +196,7 @@
         "su.model": {
           "type": "string",
           "default": "gpt-4o-mini",
-          "description": "默认模型 id（Chat 选 Auto、Ghost Text 使用；与中转 / API Key 共用）。"
+          "markdownDescription": "**默认模型**（仅填一个）。Chat 选 **Auto**、以及 Ghost Text 使用此 id。多个模型请配置下方的 `Su › Models`。"
         },
         "su.models": {
           "type": "array",
@@ -185,7 +204,7 @@
             "type": "string"
           },
           "default": [],
-          "description": "额外可选模型 id 列表（同 Base URL / API Key）。Chat 面板可切换其一，或选 Auto 使用 su.model。"
+          "markdownDescription": "**额外模型列表（可多个）**。点「Add Item」逐个添加模型 id，与 Base URL / API Key 共用。也可命令面板运行 `Su: 编辑模型列表`。Chat 输入区可切换 Auto 或列表中任一模型。"
         },
         "su.timeoutMs": {
           "type": "number",

@@ -17,7 +17,9 @@
 | `extensions/su-ai/src/agent/tools.ts` | 工作区工具（+ 确认后终端） |
 | `extensions/su-ai/src/agent/diffReview.ts` | Keep / Reject |
 | `extensions/su-ai/src/workbench.ts` | Sessions 窗跳回经典编辑器 |
-| `extensions/su-ai/src/update.ts` / `version.ts` / `secrets.ts` / `config.ts` | 更新 / 版本 / 密钥 / 配置 |
+| `extensions/su-ai/src/config.ts` | 配置 / 多模型目录 / Auto 解析 |
+| `extensions/su-ai/src/modelsUi.ts` | 编辑模型列表命令 UI |
+| `extensions/su-ai/src/update.ts` / `version.ts` / `secrets.ts` | 更新 / 版本 / 密钥 |
 
 ## 当前版本（v0.4）
 

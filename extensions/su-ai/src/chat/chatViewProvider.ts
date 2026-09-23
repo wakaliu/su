@@ -20,6 +20,7 @@ type WebviewToExt =
   | { type: 'send'; text: string; includeSelection: boolean; mode: 'chat' | 'agent'; modelPick?: string }
   | { type: 'stop' }
   | { type: 'openSettings' }
+  | { type: 'editModels' }
   | { type: 'setApiKey' }
   | { type: 'newChat' }
   | { type: 'reviewDiffs' }
@@ -139,6 +140,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           break;
         case 'openSettings':
           await vscode.commands.executeCommand('su.openSettings');
+          break;
+        case 'editModels':
+          await vscode.commands.executeCommand('su.editModels');
           break;
         case 'setApiKey':
           await promptAndSetApiKey(this.context);
@@ -478,8 +482,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       </div>
       <button type="button" class="secondary" id="btnNew">新对话</button>
       <button type="button" class="secondary" id="btnReview">审阅 Diff</button>
+      <button type="button" class="secondary" id="btnModels">模型列表</button>
       <button type="button" class="secondary" id="btnKey">设置 API Key</button>
-      <button type="button" class="secondary" id="btnSettings">中转 / 模型</button>
+      <button type="button" class="secondary" id="btnSettings">中转 / 默认模型</button>
     </div>
   </header>
   <div id="thread"></div>
@@ -641,6 +646,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     btnStop.addEventListener('click', () => vscode.postMessage({ type: 'stop' }));
     document.getElementById('btnNew').addEventListener('click', () => vscode.postMessage({ type: 'newChat' }));
     document.getElementById('btnReview').addEventListener('click', () => vscode.postMessage({ type: 'reviewDiffs' }));
+    document.getElementById('btnModels').addEventListener('click', () => vscode.postMessage({ type: 'editModels' }));
     document.getElementById('btnKey').addEventListener('click', () => vscode.postMessage({ type: 'setApiKey' }));
     document.getElementById('btnSettings').addEventListener('click', () => vscode.postMessage({ type: 'openSettings' }));
     input.addEventListener('keydown', (e) => {
