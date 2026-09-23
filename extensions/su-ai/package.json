@@ -177,7 +177,15 @@
         "su.model": {
           "type": "string",
           "default": "gpt-4o-mini",
-          "description": "发给兼容 API 的模型名。"
+          "description": "默认模型 id（Chat 选 Auto、Ghost Text 使用；与中转 / API Key 共用）。"
+        },
+        "su.models": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "额外可选模型 id 列表（同 Base URL / API Key）。Chat 面板可切换其一，或选 Auto 使用 su.model。"
         },
         "su.timeoutMs": {
           "type": "number",
@@ -187,7 +195,7 @@
         "su.ghostText.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "启用 Ghost Text 行内补全（灰色预览，Tab 接受）。使用与 Chat 相同的中转 / Key / 模型。"
+          "description": "启用 Ghost Text 行内补全（灰色预览，Tab 接受）。使用与 Chat 相同的中转 / Key，模型固定为 su.model（默认）。"
         },
         "su.ghostText.debounceMs": {
           "type": "number",

@@ -22,6 +22,7 @@
 ## 当前版本（v0.4）
 
 - Chat / Ghost（v0.2–v0.3）仍可用；Chat 容器在**右侧** `secondarySidebar`（对齐 Cursor）
+- Chat / Agent 可切换已配置模型（`su.model` + `su.models`），支持 **Auto**（= 默认 `su.model`）
 - Agent：Chat 面板切换 Agent；工具读写工作区；可选确认后 `run_terminal`
 - Diff：`Su: 审阅 Agent 改动` / Keep All / Reject All
 - 边界：ADR-0002

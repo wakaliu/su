@@ -1,25 +1,41 @@
 import * as vscode from 'vscode';
-import { resolveSuRuntimeConfig } from '../config';
+import {
+  getModelCatalog,
+  MODEL_PICK_AUTO,
+  resolveActiveModel,
+  resolveSuRuntimeConfig,
+} from '../config';
 import { streamChatCompletion, type ChatMessage } from '../openaiClient';
 import { promptAndSetApiKey } from '../secrets';
 import { runAgent } from '../agent/agentRunner';
 import { DiffReviewService } from '../agent/diffReview';
 
 const HISTORY_KEY = 'su.chat.history';
+const MODEL_PICK_KEY = 'su.chat.modelPick';
 /** Max messages kept for API context + persistence (user+assistant pairs). */
 const MAX_HISTORY = 40;
 
 type WebviewToExt =
   | { type: 'ready' }
-  | { type: 'send'; text: string; includeSelection: boolean; mode: 'chat' | 'agent' }
+  | { type: 'send'; text: string; includeSelection: boolean; mode: 'chat' | 'agent'; modelPick?: string }
   | { type: 'stop' }
   | { type: 'openSettings' }
   | { type: 'setApiKey' }
   | { type: 'newChat' }
-  | { type: 'reviewDiffs' };
+  | { type: 'reviewDiffs' }
+  | { type: 'setModelPick'; pick: string };
 
 type ExtToWebview =
-  | { type: 'status'; hasKey: boolean; model: string; baseUrl: string; pendingDiffs: number }
+  | {
+      type: 'status';
+      hasKey: boolean;
+      model: string;
+      baseUrl: string;
+      pendingDiffs: number;
+      models: string[];
+      modelPick: string;
+      activeModel: string;
+    }
   | { type: 'restore'; messages: Array<{ role: 'user' | 'assistant'; content: string }> }
   | { type: 'user'; text: string }
   | { type: 'assistantStart' }
@@ -44,6 +60,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   constructor(private readonly context: vscode.ExtensionContext) {
     this.history = this.loadHistory();
     this.diffs = new DiffReviewService();
+    this.context.subscriptions.push(
+      vscode.workspace.onDidChangeConfiguration((e) => {
+        if (
+          e.affectsConfiguration('su.model') ||
+          e.affectsConfiguration('su.models') ||
+          e.affectsConfiguration('su.baseUrl')
+        ) {
+          void this.pushStatus();
+        }
+      }),
+    );
   }
 
   /**
@@ -91,7 +118,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           });
           break;
         case 'send':
-          await this.handleSend(raw.text, raw.includeSelection, raw.mode === 'agent' ? 'agent' : 'chat');
+          await this.handleSend(
+            raw.text,
+            raw.includeSelection,
+            raw.mode === 'agent' ? 'agent' : 'chat',
+            raw.modelPick,
+          );
           break;
         case 'stop':
           this.abort?.abort();
@@ -112,6 +144,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           await promptAndSetApiKey(this.context);
           await this.pushStatus();
           break;
+        case 'setModelPick':
+          await this.setModelPick(raw.pick);
+          break;
         default:
           break;
       }
@@ -122,6 +157,24 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         void this.pushStatus();
       }
     });
+  }
+
+  private getModelPick(): string {
+    const stored = this.context.workspaceState.get<string>(MODEL_PICK_KEY, MODEL_PICK_AUTO);
+    const pick = (stored || MODEL_PICK_AUTO).trim() || MODEL_PICK_AUTO;
+    if (pick === MODEL_PICK_AUTO) {
+      return MODEL_PICK_AUTO;
+    }
+    const catalog = getModelCatalog();
+    return catalog.includes(pick) ? pick : MODEL_PICK_AUTO;
+  }
+
+  private async setModelPick(pick: string): Promise<void> {
+    const next = (pick || MODEL_PICK_AUTO).trim() || MODEL_PICK_AUTO;
+    const valid =
+      next === MODEL_PICK_AUTO || getModelCatalog().includes(next) ? next : MODEL_PICK_AUTO;
+    await this.context.workspaceState.update(MODEL_PICK_KEY, valid);
+    await this.pushStatus();
   }
 
   private loadHistory(): ChatMessage[] {
@@ -155,12 +208,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   private async pushStatus(): Promise<void> {
     const cfg = await resolveSuRuntimeConfig(this.context);
+    const modelPick = this.getModelPick();
+    const activeModel = resolveActiveModel(modelPick, cfg);
     this.post({
       type: 'status',
       hasKey: Boolean(cfg.apiKey),
       model: cfg.model,
       baseUrl: cfg.baseUrl,
       pendingDiffs: this.diffs.size,
+      models: getModelCatalog(cfg),
+      modelPick,
+      activeModel,
     });
   }
 
@@ -168,6 +226,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     text: string,
     includeSelection: boolean,
     mode: 'chat' | 'agent',
+    modelPickFromUi?: string,
   ): Promise<void> {
     const trimmed = text.trim();
     if (!trimmed) {
@@ -176,6 +235,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     if (this.abort) {
       this.abort.abort();
       this.abort = undefined;
+    }
+
+    if (modelPickFromUi !== undefined) {
+      await this.setModelPick(modelPickFromUi);
     }
 
     let userContent = trimmed;
@@ -194,10 +257,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.post({ type: 'assistantStart' });
 
     const cfg = await resolveSuRuntimeConfig(this.context);
+    const activeModel = resolveActiveModel(this.getModelPick(), cfg);
     this.abort = new AbortController();
 
     if (mode === 'agent') {
-      await this.runAgentTurn(userContent, cfg);
+      await this.runAgentTurn(userContent, { ...cfg, model: activeModel });
       return;
     }
 
@@ -206,7 +270,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       await streamChatCompletion({
         baseUrl: cfg.baseUrl,
         apiKey: cfg.apiKey,
-        model: cfg.model,
+        model: activeModel,
         timeoutMs: cfg.timeoutMs,
         messages: [
           {
@@ -396,6 +460,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     .mode-seg button { border-radius: 0; padding: 4px 10px; background: transparent; color: var(--fg); }
     .mode-seg button.active { background: var(--btn-bg); color: var(--btn-fg); }
     .hint { color: var(--muted); font-size: 11px; }
+    select#modelPick {
+      background: var(--input-bg); color: var(--input-fg);
+      border: 1px solid var(--border); border-radius: 6px;
+      padding: 4px 8px; font: 12px var(--font); max-width: 180px;
+    }
   </style>
 </head>
 <body>
@@ -417,18 +486,24 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   <footer>
     <textarea id="input" placeholder="问 Su…（Enter 发送，Shift+Enter 换行）"></textarea>
     <div class="row">
+      <label title="Auto 使用设置中的默认模型 su.model">模型
+        <select id="modelPick" aria-label="选择模型">
+          <option value="auto">Auto</option>
+        </select>
+      </label>
       <label><input type="checkbox" id="includeSel" /> 附带当前选区</label>
       <span style="flex:1"></span>
       <button type="button" class="secondary" id="btnStop" disabled>停止</button>
       <button type="button" id="btnSend">发送</button>
     </div>
-    <div class="hint">Agent 可改工作区文件；写后需 Keep/Reject · Ctrl+L</div>
+    <div class="hint">在设置中配置 su.models 可添加更多模型 · Agent 写后需 Keep/Reject · Ctrl+L</div>
   </footer>
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     const thread = document.getElementById('thread');
     const input = document.getElementById('input');
     const meta = document.getElementById('meta');
+    const modelPick = document.getElementById('modelPick');
     const btnSend = document.getElementById('btnSend');
     const btnStop = document.getElementById('btnStop');
     const includeSel = document.getElementById('includeSel');
@@ -438,6 +513,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     let streaming = false;
     let currentCard = null;
     let currentBody = null;
+    let defaultModel = '';
 
     function setMode(m) {
       mode = m;
@@ -449,6 +525,27 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
     modeChat.addEventListener('click', () => setMode('chat'));
     modeAgent.addEventListener('click', () => setMode('agent'));
+
+    function fillModelPick(models, selected, defModel) {
+      defaultModel = defModel || '';
+      const cur = selected || 'auto';
+      modelPick.innerHTML = '';
+      const autoOpt = document.createElement('option');
+      autoOpt.value = 'auto';
+      autoOpt.textContent = defaultModel ? ('Auto (' + defaultModel + ')') : 'Auto';
+      modelPick.appendChild(autoOpt);
+      (models || []).forEach((id) => {
+        const opt = document.createElement('option');
+        opt.value = id;
+        opt.textContent = id;
+        modelPick.appendChild(opt);
+      });
+      modelPick.value = (cur === 'auto' || (models || []).indexOf(cur) >= 0) ? cur : 'auto';
+    }
+
+    modelPick.addEventListener('change', () => {
+      vscode.postMessage({ type: 'setModelPick', pick: modelPick.value });
+    });
 
     function escapeHtml(s) {
       return String(s)
@@ -531,7 +628,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       const text = input.value;
       if (!text.trim()) return;
       input.value = '';
-      vscode.postMessage({ type: 'send', text, includeSelection: includeSel.checked, mode });
+      vscode.postMessage({
+        type: 'send',
+        text,
+        includeSelection: includeSel.checked,
+        mode,
+        modelPick: modelPick.value,
+      });
     }
 
     btnSend.addEventListener('click', send);
@@ -557,7 +660,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       const msg = event.data;
       switch (msg.type) {
         case 'status':
-          meta.textContent = (msg.hasKey ? 'Key ✓' : 'Key ✗') + ' · ' + msg.model + ' · ' + msg.baseUrl
+          fillModelPick(msg.models, msg.modelPick, msg.model);
+          meta.textContent = (msg.hasKey ? 'Key ✓' : 'Key ✗')
+            + ' · ' + (msg.activeModel || msg.model)
+            + (msg.modelPick === 'auto' ? ' (Auto)' : '')
+            + ' · ' + msg.baseUrl
             + (msg.pendingDiffs ? (' · 待审 ' + msg.pendingDiffs) : '');
           break;
         case 'restore':

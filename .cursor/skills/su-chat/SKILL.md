@@ -21,6 +21,7 @@ description: Chat 面板与上下文（v0.2+）。实现 Chat UI/命令时使用
 - 视图容器：`secondarySidebar` → `su-ai` → view `su.chat`
 - 消息协议：webview `send`/`stop`/`setApiKey`/`openSettings` ↔ 扩展流式 `assistantDelta`
 - 可选上下文：勾选「附带当前选区」
+- 模型：页脚下拉 **Auto**（=`su.model`）或 `su.models` 中的 id；选择写入 workspaceState
 - 历史：workspaceState 持久化；「新对话」清空
 - 流式结束后 Markdown 渲染（先 HTML escape）
 - 不做 Agent / 多文件 Diff（v0.4）

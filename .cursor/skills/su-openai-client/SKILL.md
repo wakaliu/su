@@ -13,8 +13,9 @@ description: OpenAI 兼容客户端与中转配置（v0.2+）。实现或修改 
 
 - `docs/modules/su-ai.INDEX.md`
 - `docs/acceptance/v0.2.md`
-- 设置：`su.baseUrl`、`su.model`、`su.timeoutMs`
+- 设置：`su.baseUrl`、`su.model`（默认 / Auto）、`su.models`（额外模型 id 列表）、`su.timeoutMs`
 - 密钥：SecretStorage（命令 `su.setApiKey`），禁止写入 settings
+- Chat 面板可切换 Auto 或 `su.models` 中的模型；Ghost Text 固定用 `su.model`
 
 ## 约定
 
