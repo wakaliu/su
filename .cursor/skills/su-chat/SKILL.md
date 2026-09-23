@@ -17,8 +17,8 @@ description: Chat 面板与上下文（v0.2+）。实现 Chat UI/命令时使用
 
 ## 约定
 
-- 快捷键：`Ctrl+L` / `Cmd+L` → `su.openChat`（`!terminalFocus`）
-- 活动栏容器 `su-ai` → view `su.chat`
+- 快捷键：`Ctrl+L` / `Cmd+L` → `su.openChat`（右侧辅助栏）
+- 视图容器：`secondarySidebar` → `su-ai` → view `su.chat`
 - 消息协议：webview `send`/`stop`/`setApiKey`/`openSettings` ↔ 扩展流式 `assistantDelta`
 - 可选上下文：勾选「附带当前选区」
 - 历史：workspaceState 持久化；「新对话」清空

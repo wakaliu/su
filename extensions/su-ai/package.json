@@ -144,7 +144,7 @@
       ]
     },
     "viewsContainers": {
-      "activitybar": [
+      "secondarySidebar": [
         {
           "id": "su-ai",
           "title": "Su AI",

@@ -47,11 +47,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   /**
-   * Reveals the Su Chat side bar and focuses the webview input.
+   * Reveals Su Chat in the right auxiliary bar (Cursor-like) and focuses input.
    */
   async open(): Promise<void> {
+    // Ensure the secondary/auxiliary side bar is visible, then focus our container.
+    try {
+      await vscode.commands.executeCommand('workbench.action.focusAuxiliaryBar');
+    } catch {
+      // older hosts may only support the view command below
+    }
     await vscode.commands.executeCommand('workbench.view.extension.su-ai');
-    await vscode.commands.executeCommand('su.chat.focus');
+    try {
+      await vscode.commands.executeCommand('su.chat.focus');
+    } catch {
+      // focus command is generated when the view is registered
+    }
   }
 
   resolveWebviewView(
