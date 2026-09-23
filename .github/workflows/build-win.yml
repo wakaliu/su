@@ -75,14 +75,9 @@ jobs:
           "version=$ver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           Write-Host "pre-release tag=$tag (base version=$ver)"
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: su-win32-x64
-          path: out/**
-          if-no-files-found: warn
-          retention-days: 14
-
+      # Do NOT upload out/** as Actions artifacts: the unpacked IDE is ~15k files and
+      # quickly exhausts free/org Artifact storage quota, which previously blocked the
+      # Pre-release step below. Delivery channel is GitHub Releases (zip only).
       - name: Publish Pre-release
         uses: softprops/action-gh-release@v2
         with:
@@ -96,6 +91,7 @@ jobs:
             - 基线版本：`${{ steps.meta.outputs.version }}`（见 `branding/version.json`）
             - 用途：验收 / 内测；正式版请用 workflow **release-win**（打 `v*` tag）
             - 应用内更新：需开启 `su.update.includePrerelease`
+            - 产物仅挂在本 Pre-release（不再上传 Actions Artifact，避免配额占满）
           files: |
             out/su-win32-x64-*.zip
         env:

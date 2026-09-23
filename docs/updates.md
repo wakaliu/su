@@ -20,9 +20,11 @@ Code-OSS `quality: oss` **不接**微软更新通道。su 在内置扩展 **su-a
 workflow **`build-win`** 在 `develop` 推送（或手动 Run）且打包成功后，会自动创建：
 
 - **Pre-release** tag：`v{version}-dev.{YYYYMMDD}.{短sha}`（例：`v0.1.0-dev.20260920.d028d63`）
-- 资产：`out/su-win32-x64-*.zip`
+- 资产：`out/su-win32-x64-*.zip`（挂在 Release，**不再**上传 Actions Artifact）
 
 默认用户**不会**收到这些更新（`su.update.includePrerelease=false`）。内测可在设置中打开该开关。
+
+若 workflow 曾报 `Artifact storage quota has been hit`：到仓库 **Settings → Billing / Actions** 或 Actions 页删除旧 Artifact；配额约 6–12 小时重算。当前流水线已改为只发 Release zip，避免再占满配额。
 
 ### 正式 Release
 

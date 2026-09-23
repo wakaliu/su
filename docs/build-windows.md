@@ -62,6 +62,7 @@ npm run compile
 | vendor 为空 | 先跑 `bootstrap.ps1` |
 | PowerShell 因 npm warn 中断 | 已用 `Invoke-Native` 忽略 stderr 警告；请拉取最新 `scripts/*.ps1` |
 | Agent 环境无 GitHub SSH | 由你本机手动 `git push`（约定） |
+| Actions：`Artifact storage quota has been hit` | 删旧 Artifact（Settings → Billing / Actions）；流水线已改为只发 Release zip，见 [updates.md](updates.md) |
 ### 安装 Spectre 缓解库（本机 VS2019）
 
 报错 `MSB8040` 且路径在 `G:\6\VS2019\Community` 时，请安装：
