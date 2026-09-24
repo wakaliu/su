@@ -52,6 +52,12 @@
         "icon": "$(cloud-download)"
       },
       {
+        "command": "su.openUserManual",
+        "title": "用户手册",
+        "category": "Su",
+        "icon": "$(book)"
+      },
+      {
         "command": "su.toggleGhostText",
         "title": "Su: 切换 Ghost Text",
         "category": "Su",
@@ -91,6 +97,10 @@
     "menus": {
       "MenubarHelpMenu": [
         {
+          "command": "su.openUserManual",
+          "group": "1_welcome@50"
+        },
+        {
           "submenu": "su.menubar",
           "group": "4_su"
         }
@@ -110,6 +120,10 @@
         }
       ],
       "su.menubar": [
+        {
+          "command": "su.openUserManual",
+          "group": "0_help@1"
+        },
         {
           "command": "su.openChat",
           "group": "1_chat@1"

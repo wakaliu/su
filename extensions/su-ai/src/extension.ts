@@ -3,6 +3,7 @@ import { getSuConfig } from './config';
 import { ChatViewProvider } from './chat/chatViewProvider';
 import { GhostTextProvider } from './ghostText';
 import { editModelList } from './modelsUi';
+import { openUserManual } from './userGuide';
 import { clearApiKey, promptAndSetApiKey } from './secrets';
 import { UpdateService } from './update';
 import { preferClassicWorkbench } from './workbench';
@@ -39,6 +40,7 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   context.subscriptions.push(
+    vscode.commands.registerCommand('su.openUserManual', () => openUserManual(context)),
     vscode.commands.registerCommand('su.openSettings', openSuAiSettings),
     vscode.commands.registerCommand('su.editModels', () => editModelList()),
     vscode.commands.registerCommand('su.openChat', () => chat.open()),

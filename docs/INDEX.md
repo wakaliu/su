@@ -2,6 +2,7 @@
 
 | 文档 | 用途 |
 |------|------|
+| [user-guide.md](user-guide.md) | 最终用户手册（与扩展内置一致） |
 | [architecture.md](architecture.md) | 架构边界：branding / su-ai / patches / vendor |
 | [upstream.md](upstream.md) | 钉死的 vscode tag、Proposed API、rebase 注意 |
 | [build-windows.md](build-windows.md) | Windows 构建前置与出包步骤 |

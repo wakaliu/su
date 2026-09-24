@@ -19,12 +19,15 @@
 | `extensions/su-ai/src/workbench.ts` | Sessions 窗跳回经典编辑器 |
 | `extensions/su-ai/src/config.ts` | 配置 / 多模型目录 / Auto 解析 |
 | `extensions/su-ai/src/modelsUi.ts` | 编辑模型列表命令 UI |
+| `extensions/su-ai/media/USER_GUIDE.md` | 用户手册（帮助菜单打开） |
+| `extensions/su-ai/src/userGuide.ts` | 打开用户手册预览 |
 | `extensions/su-ai/src/update.ts` / `version.ts` / `secrets.ts` | 更新 / 版本 / 密钥 |
 
 ## 当前版本（v0.4）
 
 - Chat / Ghost（v0.2–v0.3）仍可用；Chat 容器在**右侧** `secondarySidebar`（对齐 Cursor）
 - Chat / Agent 可切换已配置模型（`su.model` + `su.models`），支持 **Auto**（= 默认 `su.model`）
+- 帮助菜单：**用户手册**（内置 `media/USER_GUIDE.md` 预览）
 - Agent：Chat 面板切换 Agent；工具读写工作区；可选确认后 `run_terminal`
 - Diff：`Su: 审阅 Agent 改动` / Keep All / Reject All
 - 边界：ADR-0002
