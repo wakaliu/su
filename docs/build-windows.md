@@ -65,7 +65,7 @@ npm run compile
 | Actions：`Artifact storage quota has been hit` | 删旧 Artifact（Settings → Billing / Actions）；流水线已改为只发 Release zip，见 [updates.md](updates.md) |
 ### 安装 Spectre 缓解库（本机 VS2019）
 
-报错 `MSB8040` 且路径在 `G:\6\VS2019\Community` 时，请安装：
+报错 `MSB8040`（缺少 Spectre-mitigated libs）时，请安装：
 
 **单个组件（推荐勾这两个）：**
 
@@ -75,23 +75,24 @@ npm run compile
 **图形界面：**
 
 1. 打开 **Visual Studio Installer**
-2. 对 **VS 2019 Community** 点「修改」
+2. 对本机 **VS 2019**（Community / Build Tools / Professional）点「修改」
 3. 「单个组件」搜索 `Spectre`
 4. 勾选上面两项 → 修改
 
-**管理员 PowerShell（可复制）：**
+**管理员 PowerShell（将 `--installPath` 换成你本机 VS2019 安装根目录）：**
 
 ```powershell
+$vsRoot = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2019\Community"  # 按实际安装改
 & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe" modify `
-  --installPath "G:\6\VS2019\Community" `
+  --installPath $vsRoot `
   --add Microsoft.VisualStudio.Component.VC.Runtimes.x86.x64.Spectre `
   --add Microsoft.VisualStudio.Component.VC.14.29.16.11.x86.x64.Spectre `
   --passive --norestart
 ```
 
-装完后确认存在目录：
+装完后确认存在类似目录：
 
-`G:\6\VS2019\Community\VC\Tools\MSVC\14.29.30133\lib\spectre\x64`
+`...\VC\Tools\MSVC\<版本>\lib\spectre\x64`
 
 然后在仓库根目录重跑：`.\scripts\build-win.ps1`
 

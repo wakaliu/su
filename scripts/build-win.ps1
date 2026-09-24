@@ -49,8 +49,9 @@ function Import-VcVars64 {
     "${env:ProgramFiles}\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat",
     "${env:ProgramFiles}\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat",
     "${env:ProgramFiles}\Microsoft Visual Studio\18\Enterprise\VC\Auxiliary\Build\vcvars64.bat",
-    'G:\6\VS2019\Community\VC\Auxiliary\Build\vcvars64.bat',
-    "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build\vcvars64.bat"
+    "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build\vcvars64.bat",
+    "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2019\BuildTools\VC\Auxiliary\Build\vcvars64.bat",
+    "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2019\Professional\VC\Auxiliary\Build\vcvars64.bat"
   ) | ForEach-Object { [void]$candidates.Add($_) }
 
   $vcvars = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
@@ -126,7 +127,8 @@ if ($env:PythonLocation) {
 }
 
 $spectreLibCandidates = @(
-  'G:\6\VS2019\Community\VC\Tools\MSVC\14.29.30133\lib\spectre\x64'
+  "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2019\Community\VC\Tools\MSVC\14.29.30133\lib\spectre\x64",
+  "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2019\BuildTools\VC\Tools\MSVC\14.29.30133\lib\spectre\x64"
 )
 if ($env:VCINSTALLDIR) {
   Get-ChildItem (Join-Path $env:VCINSTALLDIR 'Tools\MSVC') -Directory -ErrorAction SilentlyContinue |
