@@ -12,6 +12,7 @@
 | `extensions/su-ai/src/extension.ts` | activate / 审阅命令 |
 | `extensions/su-ai/src/openaiClient.ts` | 流式 / 非流式 / tools 调用 |
 | `extensions/su-ai/src/chat/chatViewProvider.ts` | Chat + Agent 模式 UI |
+| `extensions/su-ai/src/chat/chatSessions.ts` | 多会话存储 / 迁移 |
 | `extensions/su-ai/src/ghostText.ts` | Ghost Text |
 | `extensions/su-ai/src/agent/agentRunner.ts` | Agent 工具循环 |
 | `extensions/su-ai/src/agent/tools.ts` | 工作区工具（+ 确认后终端） |
@@ -26,6 +27,7 @@
 ## 当前版本（v0.4）
 
 - Chat / Ghost（v0.2–v0.3）仍可用；Chat 容器在**右侧** `secondarySidebar`（对齐 Cursor）
+- Chat **多会话**：`+` 新建、历史列表切换/删除；底部 **Ask | Agent** 下拉
 - Chat / Agent 可切换已配置模型（`su.model` + `su.models`），支持 **Auto**（= 默认 `su.model`）
 - 帮助菜单：**用户手册**（内置 `media/USER_GUIDE.md` 预览）
 - Agent：Chat 面板切换 Agent；工具读写工作区；可选确认后 `run_terminal`
