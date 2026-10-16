@@ -107,4 +107,49 @@ if ($tsgoContent.Contains($suTsgoMarker)) {
   Write-Host "==> applied patch 0002-tsgo-exit2-tolerance -> build/lib/tsgo.ts"
 }
 
+# --- 0003: allow extensions to contribute to Help / Preferences menus ---
+# vscode 1.136 apiMenus no longer lists MenubarHelpMenu, so package.json
+# contributions (用户手册) are silently dropped.
+$menusTs = Join-Path $Vendor 'src\vs\workbench\services\actions\common\menusExtensionPoint.ts'
+if (-not (Test-Path $menusTs)) {
+  throw "Expected upstream file missing: $menusTs"
+}
+$menusContent = [System.IO.File]::ReadAllText($menusTs)
+$suMenuMarker = "key: 'MenubarHelpMenu'"
+if ($menusContent.Contains($suMenuMarker)) {
+  Write-Host "==> patch 0003-menubar-help already applied"
+} else {
+  $anchor = "key: 'menuBar/home',"
+  $idx = $menusContent.IndexOf($anchor)
+  if ($idx -lt 0) {
+    throw "Patch 0003 failed: could not locate menuBar/home in $menusTs"
+  }
+  # Insert a sibling entry before the home-menu object.
+  $insertAt = $menusContent.LastIndexOf("`t{", $idx)
+  if ($insertAt -lt 0) {
+    throw "Patch 0003 failed: could not locate object start before menuBar/home"
+  }
+  if ($menusContent -match "`r`n") { $nl = "`r`n" } else { $nl = "`n" }
+  $tab = "`t"
+  $block = (
+    $tab + '{' + $nl +
+    $tab + $tab + "// [su] vscode 1.136 dropped Help/Preferences from extension apiMenus." + $nl +
+    $tab + $tab + "key: 'MenubarHelpMenu'," + $nl +
+    $tab + $tab + 'id: MenuId.MenubarHelpMenu,' + $nl +
+    $tab + $tab + "description: localize('menus.help', ""The top-level Help menu"")," + $nl +
+    $tab + '},' + $nl +
+    $tab + '{' + $nl +
+    $tab + $tab + "key: 'MenubarPreferencesMenu'," + $nl +
+    $tab + $tab + 'id: MenuId.MenubarPreferencesMenu,' + $nl +
+    $tab + $tab + "description: localize('menus.preferences', ""The top-level Preferences menu"")," + $nl +
+    $tab + '},' + $nl
+  )
+  $menusContent = $menusContent.Insert($insertAt, $block)
+  if (-not $menusContent.Contains($suMenuMarker)) {
+    throw "Patch 0003 failed: marker missing after insert"
+  }
+  Set-FileUtf8NoBom -Path $menusTs -Content $menusContent
+  Write-Host "==> applied patch 0003-menubar-help -> menusExtensionPoint.ts"
+}
+
 Write-Host "==> apply-patches done"
