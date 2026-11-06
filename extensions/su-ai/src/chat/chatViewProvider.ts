@@ -32,13 +32,17 @@ type WebviewToExt =
   | { type: 'openSettings' }
   | { type: 'editModels' }
   | { type: 'setApiKey' }
+  | { type: 'openUserManual' }
   | { type: 'newChat' }
   | { type: 'listSessions' }
   | { type: 'switchSession'; id: string }
   | { type: 'deleteSession'; id: string }
   | { type: 'setMode'; mode: ChatMode }
   | { type: 'reviewDiffs' }
-  | { type: 'setModelPick'; pick: string };
+  | { type: 'keepAllDiffs' }
+  | { type: 'rejectAllDiffs' }
+  | { type: 'setModelPick'; pick: string }
+  | { type: 'applyCode'; code: string };
 
 type ExtToWebview =
   | {
@@ -82,7 +86,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private view?: vscode.WebviewView;
   private abort?: AbortController;
   private store: SessionStore;
+  private streaming = false;
   readonly diffs: DiffReviewService;
+  /** Fired when pending diff count changes (status bar). */
+  onPendingDiffsChanged?: (count: number) => void;
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.store = this.loadStore();
@@ -103,7 +110,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   /**
    * Reveals Su Chat in the right auxiliary bar (Cursor-like) and focuses input.
    */
-  async open(): Promise<void> {
+  async open(opts?: { mode?: ChatMode }): Promise<void> {
+    if (opts?.mode) {
+      await this.setMode(opts.mode);
+    }
     try {
       await vscode.commands.executeCommand('workbench.action.focusAuxiliaryBar');
     } catch {
@@ -115,6 +125,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     } catch {
       // focus command is generated when the view is registered
     }
+  }
+
+  /** Stops in-flight generation (Esc / stop button). */
+  stopGeneration(): void {
+    this.abort?.abort();
+  }
+
+  /** Pushes status (and pending-diff badge) to webview / status bar. */
+  async refreshStatus(): Promise<void> {
+    await this.pushStatus();
   }
 
   resolveWebviewView(
@@ -144,7 +164,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           );
           break;
         case 'stop':
-          this.abort?.abort();
+          this.stopGeneration();
           break;
         case 'newChat':
           await this.newSession();
@@ -164,6 +184,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         case 'reviewDiffs':
           await vscode.commands.executeCommand('su.reviewAgentDiffs');
           break;
+        case 'keepAllDiffs': {
+          const n = await this.diffs.keepAll();
+          void vscode.window.showInformationMessage(n ? `已 Keep ${n} 个文件。` : '没有待审改动。');
+          this.emitDiffsChanged();
+          await this.pushStatus();
+          break;
+        }
+        case 'rejectAllDiffs': {
+          const n = await this.diffs.rejectAll();
+          void vscode.window.showInformationMessage(n ? `已 Reject ${n} 个文件。` : '没有待审改动。');
+          this.emitDiffsChanged();
+          await this.pushStatus();
+          break;
+        }
         case 'openSettings':
           await vscode.commands.executeCommand('su.openSettings');
           break;
@@ -174,8 +208,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           await promptAndSetApiKey(this.context);
           await this.pushStatus();
           break;
+        case 'openUserManual':
+          await vscode.commands.executeCommand('su.openUserManual');
+          break;
         case 'setModelPick':
           await this.setModelPick(raw.pick);
+          break;
+        case 'applyCode':
+          await this.applyCodeToEditor(raw.code);
           break;
         default:
           break;
@@ -187,6 +227,32 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         void this.pushStatus();
       }
     });
+  }
+
+  private emitDiffsChanged(): void {
+    this.onPendingDiffsChanged?.(this.diffs.size);
+  }
+
+  private async setStreaming(on: boolean): Promise<void> {
+    this.streaming = on;
+    await vscode.commands.executeCommand('setContext', 'su.chatStreaming', on);
+  }
+
+  private async applyCodeToEditor(code: string): Promise<void> {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      void vscode.window.showWarningMessage('没有打开的编辑器，无法应用代码。');
+      return;
+    }
+    const text = code.replace(/\r\n/g, '\n');
+    await editor.edit((builder) => {
+      if (editor.selection.isEmpty) {
+        builder.insert(editor.selection.active, text);
+      } else {
+        builder.replace(editor.selection, text);
+      }
+    });
+    void vscode.window.showInformationMessage('已应用到当前文件。');
   }
 
   private get activeSession(): ChatSession {
@@ -276,7 +342,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.abort = undefined;
     const mode = this.getMode();
     const current = this.activeSession;
-    // Reuse empty current session instead of stacking blanks.
     if (current.messages.length === 0) {
       current.mode = mode;
       current.updatedAt = Date.now();
@@ -345,6 +410,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const modelPick = this.getModelPick();
     const activeModel = resolveActiveModel(modelPick, cfg);
     const s = this.activeSession;
+    this.emitDiffsChanged();
     this.post({
       type: 'status',
       hasKey: Boolean(cfg.apiKey),
@@ -395,6 +461,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     await this.saveHistory();
     this.post({ type: 'user', text: userContent });
     this.post({ type: 'assistantStart' });
+    await this.setStreaming(true);
 
     const cfg = await resolveSuRuntimeConfig(this.context);
     const activeModel = resolveActiveModel(this.getModelPick(), cfg);
@@ -446,6 +513,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       }
     } finally {
       this.abort = undefined;
+      await this.setStreaming(false);
       await this.pushStatus();
     }
   }
@@ -468,6 +536,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         onEvent: (ev) => {
           if (ev.type === 'tool') {
             this.post({ type: 'tool', text: ev.detail });
+            this.emitDiffsChanged();
           } else if (ev.type === 'assistant') {
             assistant = ev.text;
             this.post({ type: 'assistantDelta', text: ev.text });
@@ -485,7 +554,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           : '任务结束。';
         this.post({ type: 'assistantDelta', text: assistant });
       } else if (this.diffs.size) {
-        const tip = `\n\n— 待审 ${this.diffs.size} 个文件：用命令「Su: 审阅 Agent 改动」Keep/Reject。`;
+        const tip = `\n\n— 待审 ${this.diffs.size} 个文件：可用消息旁 Keep / Reject。`;
         assistant += tip;
         this.post({ type: 'assistantDelta', text: tip });
       }
@@ -505,6 +574,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       }
     } finally {
       this.abort = undefined;
+      await this.setStreaming(false);
+      this.emitDiffsChanged();
       await this.pushStatus();
     }
   }
@@ -550,45 +621,74 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       --mono: var(--vscode-editor-font-family);
       --list-hover: var(--vscode-list-hoverBackground);
       --list-active: var(--vscode-list-activeSelectionBackground);
+      --focus: var(--vscode-focusBorder, var(--btn-bg));
     }
     * { box-sizing: border-box; }
     html, body { height: 100%; margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.45 var(--font); }
     body { display: flex; flex-direction: column; position: relative; }
-    header { padding: 8px 10px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
-    .top-row { display: flex; align-items: center; gap: 8px; }
+    header { padding: 8px 10px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 4px; }
+    .top-row { display: flex; align-items: center; gap: 6px; }
     .title { font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .icon-btn {
-      width: 28px; height: 28px; padding: 0; border-radius: 6px;
-      background: transparent; color: var(--fg); border: 1px solid transparent;
-      font-size: 16px; line-height: 1; display: inline-flex; align-items: center; justify-content: center;
+      width: 28px; height: 28px; padding: 0; border-radius: 6px; border: 1px solid transparent;
+      background: transparent; color: var(--fg); font-size: 15px; line-height: 1;
+      display: inline-flex; align-items: center; justify-content: center; cursor: pointer; position: relative;
     }
     .icon-btn:hover { background: var(--list-hover); border-color: var(--border); }
+    .badge {
+      position: absolute; top: -2px; right: -2px; min-width: 14px; height: 14px; padding: 0 3px;
+      border-radius: 7px; background: var(--btn-bg); color: var(--btn-fg); font-size: 9px; line-height: 14px; text-align: center;
+    }
+    .badge.hidden { display: none; }
     header .meta { color: var(--muted); font-size: 11px; word-break: break-all; }
-    header .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .menu-wrap { position: relative; }
+    .menu-pop {
+      display: none; position: absolute; right: 0; top: 30px; z-index: 30; min-width: 160px;
+      background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 4px; box-shadow: 0 8px 24px rgba(0,0,0,.35);
+    }
+    .menu-pop.open { display: flex; flex-direction: column; }
+    .menu-pop button {
+      text-align: left; background: transparent; color: var(--fg); border: none; border-radius: 6px;
+      padding: 6px 10px; cursor: pointer; font: 12px var(--font);
+    }
+    .menu-pop button:hover { background: var(--list-hover); }
     #thread { flex: 1; overflow: auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; }
+    .empty {
+      margin: auto; max-width: 280px; text-align: left; color: var(--muted); font-size: 12px; line-height: 1.6;
+      border: 1px dashed var(--border); border-radius: 10px; padding: 14px 16px;
+    }
+    .empty h3 { margin: 0 0 8px; color: var(--fg); font-size: 13px; }
+    .empty ol { margin: 0; padding-left: 1.2em; }
+    .empty a { color: var(--link); cursor: pointer; text-decoration: underline; }
     .msg { padding: 8px 10px; border-radius: 8px; word-break: break-word; border: 1px solid var(--border); }
     .msg.user { background: var(--user-bg); align-self: flex-end; max-width: 95%; white-space: pre-wrap; }
     .msg.assistant { background: var(--ai-bg); align-self: stretch; }
-    .msg.error { color: var(--err); white-space: pre-wrap; border-color: color-mix(in srgb, var(--err) 40%, var(--border)); }
+    .msg.error { color: var(--err); white-space: pre-wrap; }
     .msg .role { font-size: 10px; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: .04em; }
     .msg .body.md h1, .msg .body.md h2, .msg .body.md h3 { margin: 0.6em 0 0.35em; line-height: 1.25; font-size: 1.05em; }
     .msg .body.md p { margin: 0.4em 0; }
     .msg .body.md ul, .msg .body.md ol { margin: 0.35em 0; padding-left: 1.3em; }
-    .msg .body.md code {
-      font-family: var(--mono); font-size: 12px; background: var(--code-bg);
-      padding: 0.1em 0.35em; border-radius: 4px;
-    }
+    .msg .body.md code { font-family: var(--mono); font-size: 12px; background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 4px; }
     .msg .body.md pre {
       margin: 0.5em 0; padding: 8px; overflow: auto; background: var(--code-bg);
-      border-radius: 6px; border: 1px solid var(--border);
+      border-radius: 6px; border: 1px solid var(--border); position: relative;
     }
     .msg .body.md pre code { padding: 0; background: transparent; }
-    .msg .body.md a { color: var(--link); }
-    .msg .body.md blockquote {
-      margin: 0.4em 0; padding-left: 0.8em; border-left: 3px solid var(--border); color: var(--muted);
+    .code-actions { display: flex; gap: 4px; margin: -4px 0 6px; justify-content: flex-end; }
+    .code-actions button {
+      font-size: 11px; padding: 2px 8px; border-radius: 4px; border: 1px solid var(--border);
+      background: var(--btn2-bg); color: var(--btn2-fg); cursor: pointer;
     }
+    .msg .body.md a { color: var(--link); }
+    .msg .body.md blockquote { margin: 0.4em 0; padding-left: 0.8em; border-left: 3px solid var(--border); color: var(--muted); }
     .msg.streaming .body { white-space: pre-wrap; }
     .msg.tool { align-self: stretch; color: var(--muted); font-size: 12px; white-space: pre-wrap; }
+    .diff-bar {
+      display: none; gap: 6px; flex-wrap: wrap; padding: 6px 10px; border-top: 1px solid var(--border);
+      background: color-mix(in srgb, var(--btn-bg) 12%, var(--bg));
+    }
+    .diff-bar.show { display: flex; align-items: center; }
+    .diff-bar .label { color: var(--muted); font-size: 11px; flex: 1; }
     footer { border-top: 1px solid var(--border); padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
     textarea {
       width: 100%; min-height: 64px; max-height: 160px; resize: vertical;
@@ -596,82 +696,92 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       border: 1px solid var(--border); border-radius: 6px; padding: 8px; font: 13px/1.4 var(--font);
     }
     .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-    .row label { display: flex; align-items: center; gap: 4px; color: var(--muted); font-size: 12px; user-select: none; }
-    button {
+    button.action {
       border: none; border-radius: 6px; padding: 6px 12px; cursor: pointer;
       background: var(--btn-bg); color: var(--btn-fg); font: 12px var(--font);
     }
-    button.secondary { background: var(--btn2-bg); color: var(--btn2-fg); }
+    button.secondary { background: var(--btn2-bg); color: var(--btn2-fg); border: none; border-radius: 6px; padding: 6px 10px; cursor: pointer; font: 12px var(--font); }
     button:disabled { opacity: .55; cursor: default; }
-    select#modelPick, select#modePick {
-      background: var(--input-bg); color: var(--input-fg);
-      border: 1px solid var(--border); border-radius: 6px;
-      padding: 4px 8px; font: 12px var(--font); max-width: 160px;
+    .pills { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
+    .pills button {
+      border: none; background: transparent; color: var(--fg); padding: 4px 12px; cursor: pointer; font: 12px var(--font);
+    }
+    .pills button.active { background: var(--btn-bg); color: var(--btn-fg); }
+    .chip {
+      display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--border); border-radius: 999px;
+      padding: 3px 10px; font-size: 11px; color: var(--muted); cursor: pointer; user-select: none;
+    }
+    .chip.on { border-color: var(--focus); color: var(--fg); background: color-mix(in srgb, var(--btn-bg) 18%, transparent); }
+    select#modelPick {
+      background: var(--input-bg); color: var(--input-fg); border: 1px solid var(--border);
+      border-radius: 999px; padding: 4px 10px; font: 12px var(--font); max-width: 160px;
     }
     .hint { color: var(--muted); font-size: 11px; }
     #historyPanel {
       display: none; position: absolute; inset: 0; z-index: 20;
-      background: color-mix(in srgb, var(--bg) 92%, black); backdrop-filter: blur(2px);
-      flex-direction: column;
+      background: color-mix(in srgb, var(--bg) 92%, black); flex-direction: column;
     }
     #historyPanel.open { display: flex; }
     #historyPanel .hp-head {
-      display: flex; align-items: center; gap: 8px; padding: 10px;
-      border-bottom: 1px solid var(--border); font-weight: 600;
+      display: flex; align-items: center; gap: 8px; padding: 10px; border-bottom: 1px solid var(--border); font-weight: 600;
     }
     #historyPanel .hp-list { flex: 1; overflow: auto; padding: 8px; display: flex; flex-direction: column; gap: 4px; }
     .hp-item {
-      display: flex; align-items: center; gap: 8px; padding: 8px 10px;
-      border-radius: 8px; border: 1px solid transparent; cursor: pointer;
+      display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; border: 1px solid transparent; cursor: pointer;
     }
     .hp-item:hover { background: var(--list-hover); }
     .hp-item.active { background: var(--list-active); border-color: var(--border); }
     .hp-item .hp-main { flex: 1; min-width: 0; }
     .hp-item .hp-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .hp-item .hp-meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
-    .hp-item .hp-del {
-      background: transparent; color: var(--muted); padding: 2px 6px; border-radius: 4px;
-    }
-    .hp-item .hp-del:hover { color: var(--err); background: color-mix(in srgb, var(--err) 15%, transparent); }
+    .hp-item .hp-del { background: transparent; color: var(--muted); padding: 2px 6px; border-radius: 4px; border: none; cursor: pointer; }
+    .hp-item .hp-del:hover { color: var(--err); }
     .hp-empty { color: var(--muted); padding: 16px; text-align: center; }
+    .streaming-hint { display: none; color: var(--muted); font-size: 11px; }
+    .streaming-hint.on { display: inline; }
   </style>
 </head>
 <body>
   <header>
     <div class="top-row">
       <div class="title" id="sessionTitle">Su Chat</div>
+      <button type="button" class="icon-btn" id="btnDiff" title="审阅 Diff">⇄<span class="badge hidden" id="diffBadge">0</span></button>
       <button type="button" class="icon-btn" id="btnNew" title="新对话">+</button>
       <button type="button" class="icon-btn" id="btnHistory" title="历史记录">◷</button>
+      <div class="menu-wrap">
+        <button type="button" class="icon-btn" id="btnMore" title="更多">⋯</button>
+        <div class="menu-pop" id="moreMenu">
+          <button type="button" id="mModels">模型列表</button>
+          <button type="button" id="mKey">设置 API Key</button>
+          <button type="button" id="mSettings">中转 / 默认模型</button>
+          <button type="button" id="mManual">用户手册</button>
+        </div>
+      </div>
     </div>
     <div class="meta" id="meta">加载中…</div>
-    <div class="actions">
-      <button type="button" class="secondary" id="btnReview">审阅 Diff</button>
-      <button type="button" class="secondary" id="btnModels">模型列表</button>
-      <button type="button" class="secondary" id="btnKey">设置 API Key</button>
-      <button type="button" class="secondary" id="btnSettings">中转 / 默认模型</button>
-    </div>
   </header>
   <div id="thread"></div>
+  <div class="diff-bar" id="diffBar">
+    <span class="label" id="diffLabel">待审 0 个文件</span>
+    <button type="button" class="secondary" id="btnKeepAll">Keep All</button>
+    <button type="button" class="secondary" id="btnRejectAll">Reject All</button>
+    <button type="button" class="secondary" id="btnReviewBar">审阅</button>
+  </div>
   <footer>
     <textarea id="input" placeholder="问 Su…（Enter 发送，Shift+Enter 换行）"></textarea>
     <div class="row">
-      <label title="Ask=问答；Agent=可改工作区文件">模式
-        <select id="modePick" aria-label="选择模式">
-          <option value="chat">Ask</option>
-          <option value="agent">Agent</option>
-        </select>
-      </label>
-      <label title="Auto 使用设置中的默认模型 su.model">模型
-        <select id="modelPick" aria-label="选择模型">
-          <option value="auto">Auto</option>
-        </select>
-      </label>
-      <label><input type="checkbox" id="includeSel" /> 附带当前选区</label>
+      <div class="pills" title="Ask=问答；Agent=可改工作区">
+        <button type="button" id="pillAsk" class="active">Ask</button>
+        <button type="button" id="pillAgent">Agent</button>
+      </div>
+      <select id="modelPick" aria-label="选择模型"><option value="auto">Auto</option></select>
+      <span class="chip" id="selChip" title="发送时附带当前选区">选区</span>
+      <span class="streaming-hint" id="streamHint">生成中 · Esc 停止</span>
       <span style="flex:1"></span>
       <button type="button" class="secondary" id="btnStop" disabled>停止</button>
-      <button type="button" id="btnSend">发送</button>
+      <button type="button" class="action" id="btnSend">发送</button>
     </div>
-    <div class="hint">+ 开新对话不会丢旧记录 · ◷ 查看历史 · Agent 写后需 Keep/Reject</div>
+    <div class="hint">+ 新对话 · ◷ 历史 · Ctrl+L Chat · Ctrl+I Agent</div>
   </footer>
   <div id="historyPanel" aria-hidden="true">
     <div class="hp-head">
@@ -687,28 +797,39 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const meta = document.getElementById('meta');
     const sessionTitle = document.getElementById('sessionTitle');
     const modelPick = document.getElementById('modelPick');
-    const modePick = document.getElementById('modePick');
+    const pillAsk = document.getElementById('pillAsk');
+    const pillAgent = document.getElementById('pillAgent');
+    const selChip = document.getElementById('selChip');
     const btnSend = document.getElementById('btnSend');
     const btnStop = document.getElementById('btnStop');
-    const includeSel = document.getElementById('includeSel');
+    const streamHint = document.getElementById('streamHint');
     const historyPanel = document.getElementById('historyPanel');
     const historyList = document.getElementById('historyList');
+    const moreMenu = document.getElementById('moreMenu');
+    const diffBar = document.getElementById('diffBar');
+    const diffBadge = document.getElementById('diffBadge');
+    const diffLabel = document.getElementById('diffLabel');
     let mode = 'chat';
+    let includeSel = false;
     let streaming = false;
     let currentCard = null;
     let currentBody = null;
     let defaultModel = '';
+    let messageCount = 0;
 
     function setMode(m) {
       mode = m === 'agent' ? 'agent' : 'chat';
-      modePick.value = mode;
+      pillAsk.classList.toggle('active', mode === 'chat');
+      pillAgent.classList.toggle('active', mode === 'agent');
       input.placeholder = mode === 'agent'
-        ? '给 Agent 下任务…（会读写工作区，写后需审阅）'
+        ? '给 Agent 下任务…（会读写工作区，写后可 Keep/Reject）'
         : '问 Su…（Enter 发送，Shift+Enter 换行）';
     }
-    modePick.addEventListener('change', () => {
-      setMode(modePick.value);
-      vscode.postMessage({ type: 'setMode', mode });
+    pillAsk.addEventListener('click', () => { setMode('chat'); vscode.postMessage({ type: 'setMode', mode: 'chat' }); });
+    pillAgent.addEventListener('click', () => { setMode('agent'); vscode.postMessage({ type: 'setMode', mode: 'agent' }); });
+    selChip.addEventListener('click', () => {
+      includeSel = !includeSel;
+      selChip.classList.toggle('on', includeSel);
     });
 
     function fillModelPick(models, selected, defModel) {
@@ -727,56 +848,106 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       });
       modelPick.value = (cur === 'auto' || (models || []).indexOf(cur) >= 0) ? cur : 'auto';
     }
-    modelPick.addEventListener('change', () => {
-      vscode.postMessage({ type: 'setModelPick', pick: modelPick.value });
-    });
+    modelPick.addEventListener('change', () => vscode.postMessage({ type: 'setModelPick', pick: modelPick.value }));
 
     function escapeHtml(s) {
-      return String(s)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
 
     function renderMarkdown(src) {
+      const tick = String.fromCharCode(96);
       const escaped = escapeHtml(src);
       const fences = [];
-      let text = escaped.replace(/\`\`\`([\\w+-]*)\\n([\\s\\S]*?)\`\`\`/g, (_, lang, code) => {
+      const fenceRe = new RegExp(tick + tick + tick + '([\\\\w+-]*)\\\\n([\\\\s\\\\S]*?)' + tick + tick + tick, 'g');
+      let text = escaped.replace(fenceRe, (_, lang, code) => {
         const i = fences.length;
-        fences.push('<pre><code class="language-' + lang + '">' + code.replace(/\\n$/, '') + '</code></pre>');
-        return '\\x00FENCE' + i + '\\x00';
+        fences.push({ lang: lang || '', code: code.replace(/\\n$/, '') });
+        return '@@FENCE' + i + '@@';
       });
-      text = text.replace(/\`([^\`\\n]+)\`/g, '<code>$1</code>');
+      text = text.replace(new RegExp(tick + '([^' + tick + '\\\\n]+)' + tick, 'g'), '<code>$1</code>');
       text = text.replace(/^### (.+)$/gm, '<h3>$1</h3>');
       text = text.replace(/^## (.+)$/gm, '<h2>$1</h2>');
       text = text.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-      text = text.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>');
+      text = text.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
       text = text.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');
-      text = text.replace(/(?<!\\*)\\*([^*\\n]+)\\*(?!\\*)/g, '<em>$1</em>');
-      text = text.replace(/\\[([^\\]]+)\\]\\((https?:\\/\\/[^)\\s]+)\\)/g, '<a href="$2" title="$2">$1</a>');
-      text = text.replace(/^(?:- |\\* )(.+)$/gm, '<li>$1</li>');
-      text = text.replace(/(?:<li>.*<\\/li>\\n?)+/g, (m) => '<ul>' + m + '</ul>');
+      text = text.replace(new RegExp('\\\\[([^\\\\]]+)\\\\]\\\\((https?:\\\\/\\\\/[^)\\\\s]+)\\\\)', 'g'), '<a href="$2">$1</a>');
+      text = text.replace(/^- (.+)$/gm, '<li>$1</li>');
+      text = text.replace(/(?:<li>[\\s\\S]*?<\\/li>\\n?)+/g, (m) => '<ul>' + m + '</ul>');
       text = text.replace(/\\n{2,}/g, '</p><p>');
       text = text.replace(/\\n/g, '<br>');
       text = '<p>' + text + '</p>';
-      text = text.replace(/\\x00FENCE(\\d+)\\x00/g, (_, i) => fences[Number(i)]);
+      text = text.replace(/@@FENCE(\\d+)@@/g, (_, i) => {
+        const f = fences[Number(i)];
+        const rawAttr = escapeHtml(f.code);
+        return '<div class="code-actions">' +
+          '<button type="button" data-copy="' + i + '">复制</button>' +
+          '<button type="button" data-apply="' + i + '">应用</button></div>' +
+          '<pre><code class="language-' + f.lang + '">' + f.code + '</code></pre>' +
+          '<textarea class="code-raw" data-raw-i="' + i + '" style="display:none">' + rawAttr + '</textarea>';
+      });
       text = text.replace(/<p><\\/p>/g, '');
       text = text.replace(/<p>(<h[1-3]>)/g, '$1').replace(/(<\\/h[1-3]>)<\\/p>/g, '$1');
-      text = text.replace(/<p>(<pre>)/g, '$1').replace(/(<\\/pre>)<\\/p>/g, '$1');
+      text = text.replace(/<p>(<div class="code-actions">)/g, '$1').replace(/(<\\/pre>)<\\/p>/g, '$1');
       text = text.replace(/<p>(<ul>)/g, '$1').replace(/(<\\/ul>)<\\/p>/g, '$1');
       text = text.replace(/<p>(<blockquote>)/g, '$1').replace(/(<\\/blockquote>)<\\/p>/g, '$1');
+      text = text.replace(/<p>(<textarea)/g, '$1').replace(/(<\\/textarea>)<\\/p>/g, '$1');
       return text;
+    }
+
+    function wireCodeActions(root) {
+      root.querySelectorAll('[data-copy]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const i = btn.getAttribute('data-copy');
+          const ta = root.querySelector('textarea[data-raw-i="' + i + '"]');
+          const code = ta ? ta.value : '';
+          navigator.clipboard.writeText(code).catch(() => {});
+          btn.textContent = '已复制';
+          setTimeout(() => { btn.textContent = '复制'; }, 1200);
+        });
+      });
+      root.querySelectorAll('[data-apply]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const i = btn.getAttribute('data-apply');
+          const ta = root.querySelector('textarea[data-raw-i="' + i + '"]');
+          const code = ta ? ta.value : '';
+          vscode.postMessage({ type: 'applyCode', code });
+        });
+      });
     }
 
     function setStreaming(on) {
       streaming = on;
       btnSend.disabled = on;
       btnStop.disabled = !on;
-      modePick.disabled = on;
+      streamHint.classList.toggle('on', on);
+      pillAsk.disabled = on;
+      pillAgent.disabled = on;
+    }
+
+    function showEmpty() {
+      thread.innerHTML = '';
+      const el = document.createElement('div');
+      el.className = 'empty';
+      el.id = 'emptyState';
+      el.innerHTML = '<h3>开始使用 Su</h3><ol>' +
+        '<li><a data-act="key">设置 API Key</a></li>' +
+        '<li>在下方输入问题并发送</li>' +
+        '<li>需要改文件时切到 <strong>Agent</strong></li>' +
+        '<li><a data-act="manual">打开用户手册</a></li></ol>';
+      thread.appendChild(el);
+      el.querySelector('[data-act="key"]').addEventListener('click', () => vscode.postMessage({ type: 'setApiKey' }));
+      el.querySelector('[data-act="manual"]').addEventListener('click', () => vscode.postMessage({ type: 'openUserManual' }));
+      messageCount = 0;
+    }
+
+    function clearEmpty() {
+      const e = document.getElementById('emptyState');
+      if (e) e.remove();
     }
 
     function addMsg(role, text, cls, asMarkdown) {
+      clearEmpty();
+      messageCount++;
       const el = document.createElement('div');
       el.className = 'msg ' + (cls || role);
       const r = document.createElement('div');
@@ -784,8 +955,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       r.textContent = role;
       const b = document.createElement('div');
       b.className = 'body' + (asMarkdown ? ' md' : '');
-      if (asMarkdown) b.innerHTML = renderMarkdown(text || '');
-      else b.textContent = text || '';
+      if (asMarkdown) {
+        b.innerHTML = renderMarkdown(text || '');
+        wireCodeActions(b);
+      } else {
+        b.textContent = text || '';
+      }
       el.appendChild(r);
       el.appendChild(b);
       thread.appendChild(el);
@@ -799,9 +974,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       const raw = currentBody.textContent || '';
       currentBody.classList.add('md');
       currentBody.innerHTML = renderMarkdown(raw);
+      wireCodeActions(currentBody);
       currentCard = null;
       currentBody = null;
       thread.scrollTop = thread.scrollHeight;
+    }
+
+    function updateDiffUi(n) {
+      const count = Number(n) || 0;
+      diffBadge.textContent = String(count);
+      diffBadge.classList.toggle('hidden', count <= 0);
+      diffBar.classList.toggle('show', count > 0);
+      diffLabel.textContent = '待审 ' + count + ' 个文件';
     }
 
     function send() {
@@ -812,7 +996,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       vscode.postMessage({
         type: 'send',
         text,
-        includeSelection: includeSel.checked,
+        includeSelection: includeSel,
         mode,
         modelPick: modelPick.value,
       });
@@ -822,8 +1006,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       try {
         const d = new Date(ts);
         const now = new Date();
-        const sameDay = d.toDateString() === now.toDateString();
-        return sameDay
+        return d.toDateString() === now.toDateString()
           ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
           : d.toLocaleString([], { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
       } catch (_) { return ''; }
@@ -841,12 +1024,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       list.forEach((s) => {
         const row = document.createElement('div');
         row.className = 'hp-item' + (s.active ? ' active' : '');
-        row.innerHTML =
-          '<div class="hp-main"><div class="hp-title"></div><div class="hp-meta"></div></div>' +
+        row.innerHTML = '<div class="hp-main"><div class="hp-title"></div><div class="hp-meta"></div></div>' +
           '<button type="button" class="hp-del" title="删除">×</button>';
         row.querySelector('.hp-title').textContent = s.title || '新对话';
-        row.querySelector('.hp-meta').textContent =
-          fmtTime(s.updatedAt) + ' · ' + (s.messageCount || 0) + ' 条';
+        row.querySelector('.hp-meta').textContent = fmtTime(s.updatedAt) + ' · ' + (s.messageCount || 0) + ' 条';
         row.addEventListener('click', (e) => {
           if (e.target.closest && e.target.closest('.hp-del')) return;
           vscode.postMessage({ type: 'switchSession', id: s.id });
@@ -872,24 +1053,27 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     btnSend.addEventListener('click', send);
     btnStop.addEventListener('click', () => vscode.postMessage({ type: 'stop' }));
-    document.getElementById('btnNew').addEventListener('click', () => {
-      closeHistory();
-      vscode.postMessage({ type: 'newChat' });
-    });
+    document.getElementById('btnNew').addEventListener('click', () => { closeHistory(); vscode.postMessage({ type: 'newChat' }); });
     document.getElementById('btnHistory').addEventListener('click', () => {
-      if (historyPanel.classList.contains('open')) closeHistory();
-      else openHistory();
+      if (historyPanel.classList.contains('open')) closeHistory(); else openHistory();
     });
     document.getElementById('btnCloseHistory').addEventListener('click', closeHistory);
-    document.getElementById('btnReview').addEventListener('click', () => vscode.postMessage({ type: 'reviewDiffs' }));
-    document.getElementById('btnModels').addEventListener('click', () => vscode.postMessage({ type: 'editModels' }));
-    document.getElementById('btnKey').addEventListener('click', () => vscode.postMessage({ type: 'setApiKey' }));
-    document.getElementById('btnSettings').addEventListener('click', () => vscode.postMessage({ type: 'openSettings' }));
+    document.getElementById('btnDiff').addEventListener('click', () => vscode.postMessage({ type: 'reviewDiffs' }));
+    document.getElementById('btnKeepAll').addEventListener('click', () => vscode.postMessage({ type: 'keepAllDiffs' }));
+    document.getElementById('btnRejectAll').addEventListener('click', () => vscode.postMessage({ type: 'rejectAllDiffs' }));
+    document.getElementById('btnReviewBar').addEventListener('click', () => vscode.postMessage({ type: 'reviewDiffs' }));
+    document.getElementById('btnMore').addEventListener('click', (e) => {
+      e.stopPropagation();
+      moreMenu.classList.toggle('open');
+    });
+    document.body.addEventListener('click', () => moreMenu.classList.remove('open'));
+    document.getElementById('mModels').addEventListener('click', () => vscode.postMessage({ type: 'editModels' }));
+    document.getElementById('mKey').addEventListener('click', () => vscode.postMessage({ type: 'setApiKey' }));
+    document.getElementById('mSettings').addEventListener('click', () => vscode.postMessage({ type: 'openSettings' }));
+    document.getElementById('mManual').addEventListener('click', () => vscode.postMessage({ type: 'openUserManual' }));
     input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        send();
-      }
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+      if (e.key === 'Escape' && streaming) { vscode.postMessage({ type: 'stop' }); }
     });
     thread.addEventListener('click', (e) => {
       const a = e.target.closest && e.target.closest('a');
@@ -903,11 +1087,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           fillModelPick(msg.models, msg.modelPick, msg.model);
           setMode(msg.mode || 'chat');
           if (msg.sessionTitle) sessionTitle.textContent = msg.sessionTitle;
+          updateDiffUi(msg.pendingDiffs);
           meta.textContent = (msg.hasKey ? 'Key ✓' : 'Key ✗')
             + ' · ' + (msg.activeModel || msg.model)
             + (msg.modelPick === 'auto' ? ' (Auto)' : '')
-            + ' · ' + msg.baseUrl
-            + (msg.pendingDiffs ? (' · 待审 ' + msg.pendingDiffs) : '');
+            + ' · ' + msg.baseUrl;
           break;
         case 'sessions':
           renderSessions(msg.sessions || []);
@@ -918,10 +1102,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           currentBody = null;
           setStreaming(false);
           if (msg.title) sessionTitle.textContent = msg.title;
-          (msg.messages || []).forEach((m) => {
-            if (m.role === 'user') addMsg('you', m.content, 'user', false);
-            else addMsg('su', m.content, 'assistant', true);
-          });
+          const msgs = msg.messages || [];
+          if (!msgs.length) showEmpty();
+          else {
+            messageCount = 0;
+            msgs.forEach((m) => {
+              if (m.role === 'user') addMsg('you', m.content, 'user', false);
+              else addMsg('su', m.content, 'assistant', true);
+            });
+          }
           break;
         case 'user':
           addMsg('you', msg.text, 'user', false);

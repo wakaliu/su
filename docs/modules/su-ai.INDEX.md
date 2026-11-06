@@ -8,10 +8,10 @@
 
 | 路径 | 说明 |
 |------|------|
-| `extensions/su-ai/package.json` | 扩展清单、命令、配置、侧栏 Chat |
-| `extensions/su-ai/src/extension.ts` | activate / 审阅命令 |
+| `extensions/su-ai/package.json` | 扩展清单、命令、配置、侧栏 Chat、快捷键 |
+| `extensions/su-ai/src/extension.ts` | activate / 审阅命令 / 待审状态栏 |
 | `extensions/su-ai/src/openaiClient.ts` | 流式 / 非流式 / tools 调用 |
-| `extensions/su-ai/src/chat/chatViewProvider.ts` | Chat + Agent 模式 UI |
+| `extensions/su-ai/src/chat/chatViewProvider.ts` | Chat + Agent UI（顶栏瘦身 / pills / 空状态 / 代码块） |
 | `extensions/su-ai/src/chat/chatSessions.ts` | 多会话存储 / 迁移 |
 | `extensions/su-ai/src/ghostText.ts` | Ghost Text |
 | `extensions/su-ai/src/agent/agentRunner.ts` | Agent 工具循环 |
@@ -24,18 +24,17 @@
 | `extensions/su-ai/src/userGuide.ts` | 打开用户手册预览 |
 | `extensions/su-ai/src/update.ts` / `version.ts` / `secrets.ts` | 更新 / 版本 / 密钥 |
 
-## 当前版本（v0.4）
+## 当前版本（v0.4.1）
 
-- Chat / Ghost（v0.2–v0.3）仍可用；Chat 容器在**右侧** `secondarySidebar`（对齐 Cursor）
-- 启动自动打开右侧 Su Chat；默认关闭 Workspace Trust（避免 Restricted Mode 挡住面板）
-- Chat **多会话**：`+` 新建、历史列表切换/删除；底部 **Ask | Agent** 下拉
-- Chat / Agent 可切换已配置模型（`su.model` + `su.models`），支持 **Auto**（= 默认 `su.model`）
-- 帮助菜单：**用户手册**（仅一项；内置 `media/USER_GUIDE.md` 预览）
-- Agent：Chat 面板切换 Agent；工具读写工作区；可选确认后 `run_terminal`
-- Diff：`Su: 审阅 Agent 改动` / Keep All / Reject All
-- 边界：ADR-0002
-- 产品版本：`0.4.0`
-- 验收：[docs/acceptance/v0.4.md](../acceptance/v0.4.md)
+- Chat 容器在**右侧** `secondarySidebar`；启动自动打开
+- 顶栏：标题 + Diff 角标 + `+` + 历史 + `⋯`（设置类进溢出菜单）
+- 底部：**Ask / Agent** pill、模型下拉（含 Auto）、选区 chip
+- 空状态引导；代码块 **复制 / 应用到当前文件**
+- Agent 待审：消息区下方 Keep All / Reject All / 审阅；状态栏 `待审 N`
+- 快捷键：`Ctrl+L` Chat、`Ctrl+I` Agent、`Esc` 停止（`su.chatStreaming`）
+- 产品版本：`0.4.1`
+- 验收：[docs/acceptance/v0.4.md](../acceptance/v0.4.md) · [v0.4.1.md](../acceptance/v0.4.1.md)
+- 下一版验收稿：[v0.5.md](../acceptance/v0.5.md)
 
 ## 禁止
 

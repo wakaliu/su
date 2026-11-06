@@ -2,7 +2,7 @@
   "name": "su-ai",
   "displayName": "Su AI",
   "description": "Built-in AI assistant for su (Chat, Ghost Text, Agent + Diff).",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "publisher": "su",
   "engines": {
     "vscode": "^1.136.0"
@@ -21,6 +21,18 @@
         "title": "Su: 打开 Chat",
         "category": "Su",
         "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "su.focusAgent",
+        "title": "Su: 打开 Agent",
+        "category": "Su",
+        "icon": "$(robot)"
+      },
+      {
+        "command": "su.stopGeneration",
+        "title": "Su: 停止生成",
+        "category": "Su",
+        "icon": "$(debug-stop)"
       },
       {
         "command": "su.openSettings",
@@ -86,6 +98,17 @@
         "key": "ctrl+l",
         "mac": "cmd+l",
         "when": "!terminalFocus"
+      },
+      {
+        "command": "su.focusAgent",
+        "key": "ctrl+i",
+        "mac": "cmd+i",
+        "when": "!terminalFocus && !editorHoverFocused"
+      },
+      {
+        "command": "su.stopGeneration",
+        "key": "escape",
+        "when": "su.chatStreaming"
       }
     ],
     "submenus": [
@@ -125,24 +148,28 @@
           "group": "1_chat@1"
         },
         {
-          "command": "su.openSettings",
+          "command": "su.focusAgent",
           "group": "1_chat@2"
         },
         {
-          "command": "su.editModels",
+          "command": "su.openSettings",
           "group": "1_chat@3"
         },
         {
-          "command": "su.setApiKey",
+          "command": "su.editModels",
           "group": "1_chat@4"
         },
         {
-          "command": "su.toggleGhostText",
+          "command": "su.setApiKey",
           "group": "1_chat@5"
         },
         {
-          "command": "su.reviewAgentDiffs",
+          "command": "su.toggleGhostText",
           "group": "1_chat@6"
+        },
+        {
+          "command": "su.reviewAgentDiffs",
+          "group": "1_chat@7"
         },
         {
           "command": "su.checkForUpdates",
@@ -151,24 +178,9 @@
       ],
       "view/title": [
         {
-          "command": "su.editModels",
+          "command": "su.reviewAgentDiffs",
           "when": "view == su.chat",
           "group": "navigation@1"
-        },
-        {
-          "command": "su.openSettings",
-          "when": "view == su.chat",
-          "group": "navigation@2"
-        },
-        {
-          "command": "su.setApiKey",
-          "when": "view == su.chat",
-          "group": "navigation@3"
-        },
-        {
-          "command": "su.checkForUpdates",
-          "when": "view == su.chat",
-          "group": "navigation@4"
         }
       ]
     },
