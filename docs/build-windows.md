@@ -63,6 +63,7 @@ npm run compile
 | PowerShell 因 npm warn 中断 | 已用 `Invoke-Native` 忽略 stderr 警告；请拉取最新 `scripts/*.ps1` |
 | Agent 环境无 GitHub SSH | 由你本机手动 `git push`（约定） |
 | Actions：`Artifact storage quota has been hit` | 删旧 Artifact（Settings → Billing / Actions）；流水线已改为只发 Release zip，见 [updates.md](updates.md) |
+| 启动提示 `Your su installation appears to be corrupt` | 勿手改 `out/vs/workbench/workbench.desktop.main.js`；改完须同步 `product.json` → `checksums`，或改用带补丁的正式构建包（见 patch 0003） |
 ### 安装 Spectre 缓解库（本机 VS2019）
 
 报错 `MSB8040`（缺少 Spectre-mitigated libs）时，请安装：
