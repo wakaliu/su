@@ -21,6 +21,8 @@
   "configurationDefaults": {
     "chat.disableAIFeatures": true,
     "workbench.startupEditor": "welcomePage",
-    "window.restoreWindows": "none"
+    "window.restoreWindows": "none",
+    "workbench.secondarySideBar.defaultVisibility": "visible",
+    "security.workspace.trust.enabled": false
   }
 }

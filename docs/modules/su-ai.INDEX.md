@@ -27,9 +27,10 @@
 ## 当前版本（v0.4）
 
 - Chat / Ghost（v0.2–v0.3）仍可用；Chat 容器在**右侧** `secondarySidebar`（对齐 Cursor）
+- 启动自动打开右侧 Su Chat；默认关闭 Workspace Trust（避免 Restricted Mode 挡住面板）
 - Chat **多会话**：`+` 新建、历史列表切换/删除；底部 **Ask | Agent** 下拉
 - Chat / Agent 可切换已配置模型（`su.model` + `su.models`），支持 **Auto**（= 默认 `su.model`）
-- 帮助菜单：**用户手册**（内置 `media/USER_GUIDE.md` 预览）
+- 帮助菜单：**用户手册**（仅一项；内置 `media/USER_GUIDE.md` 预览）
 - Agent：Chat 面板切换 Agent；工具读写工作区；可选确认后 `run_terminal`
 - Diff：`Su: 审阅 Agent 改动` / Keep All / Reject All
 - 边界：ADR-0002

@@ -71,6 +71,12 @@ export function activate(context: vscode.ExtensionContext): void {
   status.show();
   context.subscriptions.push(status);
 
+  // Reveal right-side Su Chat shortly after startup (auxiliary bar may not be ready yet).
+  const openTimer = setTimeout(() => {
+    void chat.open();
+  }, 900);
+  context.subscriptions.push({ dispose: () => clearTimeout(openTimer) });
+
   const cfg = getSuConfig();
   console.log(`[su-ai] activated v0.4; model=${cfg.model}; baseUrl=${cfg.baseUrl}; version=${updates.currentVersion}`);
 }

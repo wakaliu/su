@@ -121,10 +121,6 @@
       ],
       "su.menubar": [
         {
-          "command": "su.openUserManual",
-          "group": "0_help@1"
-        },
-        {
           "command": "su.openChat",
           "group": "1_chat@1"
         },
