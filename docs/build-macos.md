@@ -18,7 +18,7 @@
 
 说明：push 触发的路径为 `extensions/su-ai/**`、`branding/**`、`scripts/**`、`patches/**`、`.github/workflows/build-mac.yml`。macOS runner 较贵，无关文档-only 改动不会触发。
 
-Runner：`macos-14` → arm64；`macos-13` → x64。
+Runner：`macos-15` → arm64；`macos-15-intel` → x64（`macos-14` / `macos-13` 已退役）。
 
 产物名示例：`su-darwin-arm64-0.4.1-*.dmg`、`su-darwin-x64-0.4.1-*.dmg`。
 

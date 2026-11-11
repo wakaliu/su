@@ -21,9 +21,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
+          # macos-14 retired 2026-11-02 ("macos-14-arm64-us-default is not supported")
+          - os: macos-15
             arch: arm64
-          - os: macos-13
+          - os: macos-15-intel
             arch: x64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 240

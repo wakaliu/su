@@ -13,7 +13,7 @@ description: macOS darwin-arm64/x64 未签名 DMG 编译与打包。在需要产
 ## 步骤（CI）
 
 1. push `develop`（改动触及 su-ai / branding / scripts / patches / build-mac.yml）会自动跑 **build-mac**；也可 Actions 手动，或 **release-mac**（`v*` / 手动 tag）
-2. 等待 matrix：`macos-14`+arm64、`macos-13`+x64
+2. 等待 matrix：`macos-15`+arm64、`macos-15-intel`+x64
 3. 从 Pre-release / Release 下载对应 DMG
 
 ## 步骤（本机 Mac）
@@ -33,7 +33,7 @@ description: macOS darwin-arm64/x64 未签名 DMG 编译与打包。在需要产
 
 - Windows 主机无法出 Mac 包
 - 未签名：Gatekeeper 需右键打开或 `xattr -cr`
-- `macos-13` 下线后需改交叉构建方案
+- 勿再用已退役的 `macos-14` / `macos-13` runner
 
 ## 相关
 
