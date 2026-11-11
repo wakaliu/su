@@ -5,8 +5,8 @@
 #>
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $PSScriptRoot
-$ProductPath = Join-Path $Root 'vendor\vscode\product.json'
-$OverlayPath = Join-Path $Root 'branding\product.overlay.json'
+$ProductPath = Join-Path $Root 'vendor/vscode/product.json'
+$OverlayPath = Join-Path $Root 'branding/product.overlay.json'
 
 if (-not (Test-Path $ProductPath)) {
   throw "Missing $ProductPath — run bootstrap.ps1 first"
@@ -62,6 +62,8 @@ $product['win32RegValueName'] = 'su'
 $product['win32AppUserModelId'] = 'Su.su'
 $product['win32ShellNameShort'] = 'su'
 $product['darwinBundleIdentifier'] = 'com.su.editor'
+$product['darwinBundleDisplayName'] = 'su'
+$product['darwinBundleName'] = 'su'
 $product['linuxIconName'] = 'su'
 
 $json = $product | ConvertTo-Json -Depth 100
@@ -69,8 +71,8 @@ $json = $product | ConvertTo-Json -Depth 100
 Write-Host "==> branding applied -> $ProductPath"
 
 # Replace Windows packaging icons when a custom pack is present.
-$IconSrc = Join-Path $Root 'branding\icons\win32'
-$IconDst = Join-Path $Root 'vendor\vscode\resources\win32'
+$IconSrc = Join-Path $Root 'branding/icons/win32'
+$IconDst = Join-Path $Root 'vendor/vscode/resources/win32'
 if ((Test-Path (Join-Path $IconSrc 'code.ico')) -and (Test-Path $IconDst)) {
   Write-Host "==> apply win32 icons -> $IconDst"
   Copy-Item -Force (Join-Path $IconSrc 'code.ico') (Join-Path $IconDst 'code.ico')
@@ -84,4 +86,16 @@ if ((Test-Path (Join-Path $IconSrc 'code.ico')) -and (Test-Path $IconDst)) {
   Write-Host "==> skip win32 icons (missing branding/icons/win32/code.ico)"
 } else {
   Write-Host "==> skip win32 icons (vendor resources/win32 missing)"
+}
+
+# Replace darwin packaging icons when a custom .icns is present (internal unsigned builds).
+$DarwinIconSrc = Join-Path $Root 'branding/icons/darwin/code.icns'
+$DarwinIconDstDir = Join-Path $Root 'vendor/vscode/resources/darwin'
+if ((Test-Path $DarwinIconSrc) -and (Test-Path $DarwinIconDstDir)) {
+  Write-Host "==> apply darwin icons -> $DarwinIconDstDir"
+  Copy-Item -Force $DarwinIconSrc (Join-Path $DarwinIconDstDir 'code.icns')
+} elseif (-not (Test-Path $DarwinIconSrc)) {
+  Write-Host "==> skip darwin icons (missing branding/icons/darwin/code.icns)"
+} else {
+  Write-Host "==> skip darwin icons (vendor resources/darwin missing)"
 }

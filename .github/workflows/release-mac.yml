@@ -1,0 +1,153 @@
+name: release-mac
+
+# Build unsigned macOS DMGs and attach them to a GitHub Release (same tag as Windows is fine).
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to publish (e.g. v0.4.1). Required for manual release upload.'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            arch: arm64
+          - os: macos-13
+            arch: x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 240
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      SU_NODE_HEAP_MB: '8192'
+      SU_DARWIN_ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release tag
+        id: meta
+        shell: pwsh
+        run: |
+          if ('${{ github.ref_type }}' -eq 'tag') {
+            $tag = '${{ github.ref_name }}'
+          } else {
+            $tag = '${{ inputs.tag }}'.Trim()
+          }
+          if (-not $tag) { throw 'Missing release tag' }
+          if ($tag -notmatch '^v') { $tag = "v$tag" }
+          $ver = $tag.TrimStart('v')
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "version=$ver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "tag=$tag version=$ver"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Align branding version with tag
+        shell: pwsh
+        run: |
+          $ver = '${{ steps.meta.outputs.version }}'.Trim().TrimStart('v', 'V')
+          if ($ver -match '^(\d+)\.(\d+)$') { $ver = "$ver.0" }
+          if ($ver -notmatch '^\d+\.\d+\.\d+([-+][0-9A-Za-z.-]+)?$') {
+            throw "Invalid release version '$ver' (need major.minor.patch)"
+          }
+          $path = 'branding/version.json'
+          $text = [System.IO.File]::ReadAllText($path)
+          $updated = [regex]::Replace($text, '"version"\s*:\s*"[^"]*"', ('"version": "' + $ver + '"'), 1)
+          $utf8 = New-Object System.Text.UTF8Encoding $false
+          [System.IO.File]::WriteAllText($path, $updated, $utf8)
+          Write-Host "branding/version.json => $ver"
+
+      - name: Bootstrap upstream + branding
+        shell: pwsh
+        run: ./scripts/bootstrap.ps1
+
+      - name: Build darwin-${{ matrix.arch }}
+        shell: pwsh
+        run: ./scripts/build-mac.ps1
+
+      - name: Package DMG
+        shell: pwsh
+        run: ./scripts/package-mac.ps1
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-su-darwin-${{ matrix.arch }}-dmg
+          path: out/su-darwin-${{ matrix.arch }}-*.dmg
+          if-no-files-found: error
+          retention-days: 5
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release tag
+        id: meta
+        shell: bash
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            tag="${{ github.ref_name }}"
+          else
+            tag="${{ inputs.tag }}"
+            tag="${tag#"${tag%%[![:space:]]*}"}"
+            tag="${tag%"${tag##*[![:space:]]}"}"
+          fi
+          if [ -z "$tag" ]; then
+            echo "Missing release tag" >&2
+            exit 1
+          fi
+          case "$tag" in
+            v*) ;;
+            *) tag="v$tag" ;;
+          esac
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download DMGs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-su-darwin-*-dmg
+          path: out/mac-artifacts
+          merge-multiple: true
+
+      - name: Create / update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: su ${{ steps.meta.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            out/mac-artifacts/**/*.dmg
+          body: |
+            macOS 内部分发包（未签名）。
+
+            - `su-darwin-arm64-*.dmg` — Apple Silicon (M 芯片)
+            - `su-darwin-x64-*.dmg` — Intel
+
+            首次打开：右键「打开」，或 `xattr -cr /Applications/su.app`。
+            Windows 包见同 tag 的 win32 zip（workflow **release-win**）。
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

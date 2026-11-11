@@ -1,4 +1,4 @@
-# 应用更新（Windows）
+# 应用更新（Windows / macOS）
 
 ## 现状
 
@@ -13,7 +13,15 @@ Code-OSS `quality: oss` **不接**微软更新通道。su 在内置扩展 **su-a
 
 ## 发版才能检到更新
 
-应用内检查依赖仓库上存在 **高于当前 `branding/version.json` 的 Release tag**，且资产名尽量包含 `win32`/`windows`/`x64`，扩展名 `.exe` / `.msi` / `.zip`。
+应用内检查依赖仓库上存在 **高于当前 `branding/version.json` 的 Release tag**，并按平台选资产：
+
+| 平台 | 资产名偏好 | 扩展名 |
+|------|------------|--------|
+| Windows | `win32` / `windows` / `x64` | `.exe` / `.msi` / `.zip` |
+| macOS arm64 | `darwin-arm64` | `.dmg`（或 `.zip`） |
+| macOS Intel | `darwin-x64` | `.dmg`（或 `.zip`） |
+
+macOS 包为**未签名**内部分发；下载后需手动打开 DMG / 右键打开应用。
 
 ### 自动 Pre-release（develop 构建）
 
@@ -30,7 +38,11 @@ workflow **`build-win`** 在 `develop` 推送（或手动 Run）且打包成功�
 
 1. 修改 `branding/version.json` 的 `version`（如 `0.1.1`）
 2. 提交并 `git tag v0.1.1 && git push origin v0.1.1`
-3. 运行 workflow **`release-win`**（见 `.github/workflows/release-win.yml`），或手动把 zip 挂到该 Release
+3. 运行 workflow **`release-win`**（Windows zip）与/或 **`release-mac`**（双架构 DMG），或手动把资产挂到该 Release
+
+### macOS 内测 Pre-release
+
+手动跑 **`build-mac`**：产出 tag 形如 `v{version}-dev.{YYYYMMDD}.{短sha}-mac` 的 Pre-release（两份 DMG）。详见 [build-macos.md](build-macos.md)。
 
 ## 设置项
 
@@ -43,5 +55,6 @@ workflow **`build-win`** 在 `develop` 推送（或手动 Run）且打包成功�
 ## 验收要点
 
 - 无更高 Release 时手动检查提示「已是最新」
-- 有更高 tag + Windows 资产时弹出更新提示，可取消
+- 有更高 tag + 本平台资产时弹出更新提示，可取消
+- macOS 上优先匹配对应 arch 的 `.dmg`
 - 关闭 `checkOnStartup` 后启动不再自动提示

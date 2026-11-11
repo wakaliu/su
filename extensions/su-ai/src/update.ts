@@ -36,7 +36,7 @@ interface GitHubRelease {
 }
 
 /**
- * Handles GitHub Releases based update checks, prompts, and installer download for Windows.
+ * Handles GitHub Releases based update checks and package download (Windows zip / macOS DMG).
  */
 export class UpdateService {
   private readonly product: SuProductVersion;
@@ -69,7 +69,7 @@ export class UpdateService {
   }
 
   /**
-   * Checks GitHub Releases for a newer Windows package and prompts the user.
+   * Checks GitHub Releases for a newer package for this platform and prompts the user.
    */
   async checkForUpdates(options: { manual: boolean }): Promise<void> {
     if (this.checking) {
@@ -87,7 +87,7 @@ export class UpdateService {
       if (!release) {
         if (options.manual) {
           void vscode.window.showWarningMessage(
-            `未找到可用的 GitHub Release（仓库 ${settings.repo}）。请确认已发布带 Windows 安装包的 tag。`,
+            `未找到可用的 GitHub Release（仓库 ${settings.repo}）。请确认已发布带本平台安装包的 tag。`,
           );
         }
         return;
@@ -161,11 +161,11 @@ export class UpdateService {
       return;
     }
 
-    const open = await vscode.window.showInformationMessage(
-      `已下载到：${dest}\n请关闭 su 后运行安装包完成更新。`,
-      '打开安装包',
-      '打开所在文件夹',
-    );
+    const tip =
+      process.platform === 'darwin'
+        ? `已下载到：${dest}\n请关闭 su 后打开 DMG，将应用拖入「应用程序」（未签名包需右键打开或 xattr -cr）。`
+        : `已下载到：${dest}\n请关闭 su 后运行安装包完成更新。`;
+    const open = await vscode.window.showInformationMessage(tip, '打开安装包', '打开所在文件夹');
     if (open === '打开安装包') {
       await vscode.env.openExternal(vscode.Uri.file(dest));
     } else if (open === '打开所在文件夹') {
@@ -190,7 +190,7 @@ export class UpdateService {
       return undefined;
     }
 
-    const asset = pickWindowsAsset(release.assets || []);
+    const asset = pickPlatformAsset(release.assets || []);
     if (!asset) {
       // Still allow opening the release page even without a matched asset.
       return {
@@ -216,7 +216,8 @@ export class UpdateService {
   }
 }
 
-function pickWindowsAsset(assets: GitHubReleaseAsset[]): GitHubReleaseAsset | undefined {
+/** Picks the best GitHub Release asset for the running platform/arch. */
+function pickPlatformAsset(assets: GitHubReleaseAsset[]): GitHubReleaseAsset | undefined {
   const ranked = assets
     .map((a) => ({ a, score: scoreAsset(a.name) }))
     .filter((x) => x.score > 0)
@@ -226,6 +227,46 @@ function pickWindowsAsset(assets: GitHubReleaseAsset[]): GitHubReleaseAsset | un
 
 function scoreAsset(name: string): number {
   const n = name.toLowerCase();
+  if (process.platform === 'darwin') {
+    return scoreDarwinAsset(n);
+  }
+  return scoreWindowsAsset(n);
+}
+
+function scoreDarwinAsset(n: string): number {
+  if (!/(\.dmg|\.zip)$/.test(n)) {
+    return 0;
+  }
+  if (n.includes('win32') || n.includes('windows') || n.includes('linux')) {
+    return 0;
+  }
+  let score = 1;
+  if (n.includes('darwin') || n.includes('macos') || n.includes('osx')) {
+    score += 3;
+  }
+  const wantArm = process.arch === 'arm64';
+  if (wantArm) {
+    if (n.includes('arm64') || n.includes('aarch64')) {
+      score += 4;
+    }
+    if (n.includes('x64') || n.includes('amd64') || n.includes('intel')) {
+      score -= 4;
+    }
+  } else {
+    if (n.includes('x64') || n.includes('amd64') || n.includes('intel')) {
+      score += 4;
+    }
+    if (n.includes('arm64') || n.includes('aarch64')) {
+      score -= 4;
+    }
+  }
+  if (n.endsWith('.dmg')) {
+    score += 2;
+  }
+  return score;
+}
+
+function scoreWindowsAsset(n: string): number {
   if (!/(\.exe|\.msi|\.zip)$/.test(n)) {
     return 0;
   }
@@ -242,7 +283,7 @@ function scoreAsset(name: string): number {
   if (n.includes('setup') || n.includes('installer') || n.includes('user')) {
     score += 1;
   }
-  if (n.includes('arm') || n.includes('darwin') || n.includes('linux')) {
+  if (n.includes('darwin') || n.includes('linux') || n.includes('arm64')) {
     score -= 5;
   }
   return score;

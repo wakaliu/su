@@ -1,0 +1,106 @@
+name: build-mac
+
+# Unsigned internal macOS DMGs (darwin-arm64 + darwin-x64). Manual only to control macOS minutes.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            arch: arm64
+          - os: macos-13
+            arch: x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 240
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      SU_NODE_HEAP_MB: '8192'
+      SU_DARWIN_ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Bootstrap upstream + branding
+        shell: pwsh
+        run: ./scripts/bootstrap.ps1
+
+      - name: Build darwin-${{ matrix.arch }}
+        shell: pwsh
+        run: ./scripts/build-mac.ps1
+
+      - name: Package DMG
+        shell: pwsh
+        run: ./scripts/package-mac.ps1
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: su-darwin-${{ matrix.arch }}-dmg
+          path: |
+            out/su-darwin-${{ matrix.arch }}-*.dmg
+            out/darwin-${{ matrix.arch }}/INSTALL-INTERNAL.txt
+          if-no-files-found: error
+          retention-days: 5
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download DMGs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: su-darwin-*-dmg
+          path: out/mac-artifacts
+          merge-multiple: true
+
+      - name: Resolve Pre-release tag
+        id: meta
+        shell: bash
+        run: |
+          ver=$(python3 -c "import json; print(json.load(open('branding/version.json'))['version'])" 2>/dev/null || echo '0.0.0')
+          ver="${ver#v}"
+          date=$(date -u +%Y%m%d)
+          sha="${GITHUB_SHA:0:7}"
+          tag="v${ver}-dev.${date}.${sha}-mac"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+          echo "pre-release tag=$tag"
+          find out/mac-artifacts -type f -print
+
+      - name: Publish Pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: su ${{ steps.meta.outputs.tag }}
+          prerelease: true
+          generate_release_notes: true
+          body: |
+            自动构建自 macOS CI（commit `${{ github.sha }}`）。
+
+            - 基线版本：`${{ steps.meta.outputs.version }}`
+            - 架构：`darwin-arm64`（Apple Silicon）与 `darwin-x64`（Intel）各一份 **未签名** DMG
+            - 内部分发：首次打开需右键「打开」或 `xattr -cr`（见 DMG 内 INSTALL-INTERNAL.txt）
+            - 正式版请用 workflow **release-mac**（`v*` tag）
+          files: |
+            out/mac-artifacts/**/*.dmg
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

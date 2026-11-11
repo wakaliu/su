@@ -5,7 +5,7 @@
 #>
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $PSScriptRoot
-$Vendor = Join-Path $Root 'vendor\vscode'
+$Vendor = Join-Path $Root 'vendor/vscode'
 $Tag = '1.136.1'
 $Repo = 'https://github.com/microsoft/vscode.git'
 

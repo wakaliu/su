@@ -11,7 +11,7 @@
 
 ## 硬性约束
 
-- 产品名：**su**；开发分支：**develop**；平台：Windows x64
+- 产品名：**su**；开发分支：**develop**；主平台：**Windows x64**；Mac 为 CI 内部分发（未签名 DMG，见 `docs/build-macos.md`）
 - 模型协议：OpenAI 兼容（Base URL / API Key / Model），支持中转
 - **禁止**无 patch 直接改 `vendor/vscode`；改动必须进 `patches/` 并带 `// [su]`
 - **禁止**提交 API Key、`.env` 密钥；密钥只用 SecretStorage / 本机凭据

@@ -5,8 +5,8 @@
 #>
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $PSScriptRoot
-$Src = Join-Path $Root 'extensions\su-ai'
-$Dst = Join-Path $Root 'vendor\vscode\extensions\su-ai'
+$Src = Join-Path $Root 'extensions/su-ai'
+$Dst = Join-Path $Root 'vendor/vscode/extensions/su-ai'
 
 function Invoke-Native {
   param(
@@ -80,7 +80,7 @@ function Set-PackageJsonVersion {
   Set-Utf8NoBomText -Path $PackageJsonPath -Text $updated
 }
 
-if (-not (Test-Path (Join-Path $Root 'vendor\vscode\extensions'))) {
+if (-not (Test-Path (Join-Path $Root 'vendor/vscode/extensions'))) {
   throw "vendor/vscode missing — run bootstrap.ps1 first"
 }
 if (-not (Test-Path $Src)) {
@@ -112,7 +112,7 @@ if (Test-Path $OutSrc) {
 }
 
 # Stamp product version into the built-in extension for update checks / vsce.
-$VersionFile = Join-Path $Root 'branding\version.json'
+$VersionFile = Join-Path $Root 'branding/version.json'
 if (Test-Path $VersionFile) {
   Copy-Item -Force $VersionFile (Join-Path $Dst 'version.json')
   Copy-Item -Force $VersionFile (Join-Path $Src 'version.json')

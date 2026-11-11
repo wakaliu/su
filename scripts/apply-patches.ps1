@@ -5,7 +5,7 @@
 #>
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $PSScriptRoot
-$Vendor = Join-Path $Root 'vendor\vscode'
+$Vendor = Join-Path $Root 'vendor/vscode'
 
 if (-not (Test-Path (Join-Path $Vendor '.git'))) {
   throw "vendor/vscode missing; run .\scripts\bootstrap.ps1 first"
@@ -18,7 +18,7 @@ function Set-FileUtf8NoBom {
 }
 
 # --- 0001: skip Copilot ripgrep shim when Copilot is not packaged (OSS) ---
-$copilotTs = Join-Path $Vendor 'build\lib\copilot.ts'
+$copilotTs = Join-Path $Vendor 'build/lib/copilot.ts'
 if (-not (Test-Path $copilotTs)) {
   throw "Expected upstream file missing: $copilotTs"
 }
@@ -58,7 +58,7 @@ if ($copilotContent.Contains($suMarker)) {
 }
 
 # --- 0002: tolerate tsgo (TS7 native preview) crash on Windows CI (exit != 0 but 0 error lines) ---
-$tsgoTs = Join-Path $Vendor 'build\lib\tsgo.ts'
+$tsgoTs = Join-Path $Vendor 'build/lib/tsgo.ts'
 if (-not (Test-Path $tsgoTs)) {
   throw "Expected upstream file missing: $tsgoTs"
 }
@@ -110,7 +110,7 @@ if ($tsgoContent.Contains($suTsgoMarker)) {
 # --- 0003: allow extensions to contribute to Help / Preferences menus ---
 # vscode 1.136 apiMenus no longer lists MenubarHelpMenu, so package.json
 # contributions (用户手册) are silently dropped.
-$menusTs = Join-Path $Vendor 'src\vs\workbench\services\actions\common\menusExtensionPoint.ts'
+$menusTs = Join-Path $Vendor 'src/vs/workbench/services/actions/common/menusExtensionPoint.ts'
 if (-not (Test-Path $menusTs)) {
   throw "Expected upstream file missing: $menusTs"
 }

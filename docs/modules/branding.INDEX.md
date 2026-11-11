@@ -11,8 +11,9 @@
 | `branding/product.overlay.json` | 合并进上游 `product.json` 的字段 |
 | `branding/version.json` | 产品版本 + GitHub 仓库（供更新检查） |
 | `branding/icons/` | 应用图标（小篆「溯」黑底蓝绿；见 `icons/README.md`） |
-| `scripts/apply-branding.ps1` | 合并 overlay、复制 win32 图标 |
-| `scripts/export-app-icons.py` | 从确认母版导出 PNG/ICO 套件 |
+| `scripts/apply-branding.ps1` | 合并 overlay、复制 win32 / darwin 图标 |
+| `scripts/export-app-icons.py` | 从确认母版导出 PNG/ICO；macOS 上可生成 `darwin/code.icns` |
+| `scripts/build-mac.ps1` / `package-mac.ps1` | macOS 双架构构建与未签名 DMG |
 | `scripts/inject-extension.ps1` | 注入 su-ai 并写入 `version.json` |
 
 ## 关键字段（overlay）
@@ -20,6 +21,7 @@
 - `nameShort` / `nameLong` / `applicationName` → su
 - `dataFolderName` → `.su`
 - `win32MutexName` 等 Windows 标识避免与 Code 冲突
+- `darwinBundleIdentifier` / `darwinBundleDisplayName` / `darwinBundleName` → macOS 标识
 - `extensionsGallery` → Open VSX（若启用市场）
 - `builtInExtensions` / 注入路径由 bootstrap 将 su-ai 拷入 `extensions/`
 

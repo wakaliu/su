@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MASTER = ROOT / "branding" / "icons" / "preview" / "su-icon-final-master.png"
 OUT = ROOT / "branding" / "icons"
 WIN32 = OUT / "win32"
+DARWIN = OUT / "darwin"
 PNG = OUT / "png"
 MASTER_OUT = OUT / "master"
 
@@ -57,6 +58,34 @@ def save_ico(im: Image.Image, path: Path, sizes: list[int]) -> None:
     )
 
 
+def try_export_darwin_icns(im: Image.Image) -> None:
+    """Build branding/icons/darwin/code.icns when iconutil is available (macOS)."""
+    import platform
+    import shutil
+    import subprocess
+    import tempfile
+
+    if platform.system() != "Darwin" or not shutil.which("iconutil"):
+        print("Skip darwin/code.icns (iconutil only on macOS); CI build-mac may generate it.")
+        return
+
+    sizes = [16, 32, 64, 128, 256, 512, 1024]
+    with tempfile.TemporaryDirectory(prefix="su-iconset-") as tmp:
+        iconset = Path(tmp) / "code.iconset"
+        iconset.mkdir()
+        for s in sizes:
+            save_png(im, iconset / f"icon_{s}x{s}.png", s)
+            if s <= 512:
+                save_png(im, iconset / f"icon_{s}x{s}@2x.png", s * 2)
+        out = DARWIN / "code.icns"
+        DARWIN.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            ["iconutil", "-c", "icns", str(iconset), "-o", str(out)],
+            check=True,
+        )
+        print(f"Wrote {out}")
+
+
 def main() -> None:
     if not MASTER.exists():
         raise SystemExit(f"Missing master: {MASTER}")
@@ -76,9 +105,14 @@ def main() -> None:
     # Also ship as su.ico for documentation / installers.
     save_ico(master, OUT / "su.ico", [16, 24, 32, 48, 64, 128, 256])
 
+    # Darwin: keep a PNG staging copy; .icns is built on macOS via iconutil.
+    DARWIN.mkdir(parents=True, exist_ok=True)
+    save_png(master, DARWIN / "su-1024.png", 1024)
+    try_export_darwin_icns(master)
+
     print(f"Exported icon pack -> {OUT}")
     for p in sorted(OUT.rglob("*")):
-        if p.is_file() and p.suffix.lower() in {".png", ".ico", ".jpg"}:
+        if p.is_file() and p.suffix.lower() in {".png", ".ico", ".icns", ".jpg"}:
             print(f"  {p.relative_to(OUT)} ({p.stat().st_size} bytes)")
 
 
