@@ -5,6 +5,7 @@
 
 .NOTES
   Requires macOS + hdiutil. Set SU_DARWIN_ARCH=arm64|x64 to match build-mac.ps1.
+  Upstream gulp writes to <dirname(vendor/vscode)>/VSCode-darwin-<arch> i.e. vendor/VSCode-darwin-*.
 #>
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $PSScriptRoot
@@ -36,40 +37,91 @@ $DmgName = "su-darwin-$Arch-$Version-$Stamp.dmg"
 $DmgPath = Join-Path $Root "out/$DmgName"
 $ReadmePath = Join-Path $OutDir 'INSTALL-INTERNAL.txt'
 
-$Candidates = @(
-  (Join-Path $Root "VSCode-darwin-$Arch"),
-  (Join-Path $Vendor "../VSCode-darwin-$Arch"),
-  (Join-Path $Vendor ".build/darwin-$Arch")
-) | ForEach-Object {
-  try { (Resolve-Path $_ -ErrorAction Stop).Path } catch { $null }
-} | Where-Object { $_ -and (Test-Path $_) }
+function Get-FullPathSafe([string]$Path) {
+  if (-not $Path) { return $null }
+  try {
+    return [System.IO.Path]::GetFullPath($Path)
+  } catch {
+    return $null
+  }
+}
 
-if (-not $Candidates -or $Candidates.Count -eq 0) {
+function Find-AppBundle([string]$Dir) {
+  if (-not $Dir -or -not (Test-Path -LiteralPath $Dir)) {
+    return $null
+  }
+  # .app is a directory bundle; avoid -Filter/-Directory quirks on macOS PS.
+  $direct = Get-ChildItem -LiteralPath $Dir -Force -ErrorAction SilentlyContinue |
+    Where-Object { $_.PSIsContainer -and $_.Name -like '*.app' } |
+    Select-Object -First 1
+  if ($direct) {
+    return $direct
+  }
+  return Get-ChildItem -LiteralPath $Dir -Recurse -Depth 2 -Force -ErrorAction SilentlyContinue |
+    Where-Object { $_.PSIsContainer -and $_.Name -like '*.app' } |
+    Select-Object -First 1
+}
+
+# gulpfile.vscode.ts: buildRoot = dirname(vscodeRoot) => vendor/VSCode-darwin-<arch>
+$CandidatePaths = @(
+  (Join-Path $Root "vendor/VSCode-darwin-$Arch"),
+  (Join-Path $Root "VSCode-darwin-$Arch"),
+  (Get-FullPathSafe (Join-Path $Vendor "..\VSCode-darwin-$Arch")),
+  (Get-FullPathSafe (Join-Path $Vendor "../VSCode-darwin-$Arch")),
+  (Join-Path $Vendor ".build/electron/darwin-$Arch"),
+  (Join-Path $Vendor ".build/darwin-$Arch")
+) | ForEach-Object { Get-FullPathSafe $_ } | Where-Object { $_ } | Select-Object -Unique
+
+Write-Host "==> looking for VSCode-darwin-$Arch under:"
+foreach ($p in $CandidatePaths) {
+  $exists = Test-Path -LiteralPath $p
+  Write-Host "    [$exists] $p"
+}
+
+$Source = $null
+$App = $null
+foreach ($p in $CandidatePaths) {
+  if (-not (Test-Path -LiteralPath $p)) {
+    continue
+  }
+  $found = Find-AppBundle $p
+  if ($found) {
+    $Source = $p
+    $App = $found
+    break
+  }
+}
+
+if (-not $Source -or -not $App) {
+  $hintDirs = @(
+    (Join-Path $Root 'vendor'),
+    $Root
+  )
+  foreach ($d in $hintDirs) {
+    if (Test-Path -LiteralPath $d) {
+      Write-Host "==> listing $d"
+      Get-ChildItem -LiteralPath $d -Force -ErrorAction SilentlyContinue |
+        Select-Object -First 40 Name, Mode |
+        ForEach-Object { Write-Host ("    {0} {1}" -f $_.Mode, $_.Name) }
+    }
+  }
   throw @"
-No macOS build folder found for darwin-$Arch.
-Expected VSCode-darwin-$Arch next to the repo root (sibling of vendor/).
+No .app bundle found for darwin-$Arch.
+Expected gulp output at: vendor/VSCode-darwin-$Arch/*.app
 Run ./scripts/build-mac.ps1 with SU_DARWIN_ARCH=$Arch first.
 "@
 }
 
-$Source = $Candidates[0]
 Write-Host "==> packaging from $Source"
-
-$App = Get-ChildItem -Path $Source -Filter '*.app' -Directory -ErrorAction SilentlyContinue |
-  Select-Object -First 1
-if (-not $App) {
-  throw "No .app bundle found under $Source"
-}
-
 Write-Host "==> app: $($App.FullName)"
 
-if (Test-Path $OutDir) { Remove-Item -Recurse -Force $OutDir }
+if (Test-Path -LiteralPath $OutDir) { Remove-Item -Recurse -Force -LiteralPath $OutDir }
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 New-Item -ItemType Directory -Force -Path (Split-Path $DmgPath) | Out-Null
 
 $Stage = Join-Path $OutDir 'stage'
 New-Item -ItemType Directory -Force -Path $Stage | Out-Null
-Copy-Item -Path $App.FullName -Destination (Join-Path $Stage $App.Name) -Recurse -Force
+Copy-Item -LiteralPath $App.FullName -Destination (Join-Path $Stage $App.Name) -Recurse -Force
 
 $InstallText = @"
 su macOS — 内部未签名包（darwin-$Arch）
@@ -88,12 +140,11 @@ su macOS — 内部未签名包（darwin-$Arch）
 "@
 $utf8 = New-Object System.Text.UTF8Encoding $false
 [System.IO.File]::WriteAllText($ReadmePath, $InstallText, $utf8)
-Copy-Item -Force $ReadmePath (Join-Path $Stage 'INSTALL-INTERNAL.txt')
+Copy-Item -Force -LiteralPath $ReadmePath -Destination (Join-Path $Stage 'INSTALL-INTERNAL.txt')
 
-# Create a temporary read/write UDRW image, then convert to compressed UDZO.
 $TmpDmg = Join-Path $OutDir "tmp-$Arch.dmg"
-if (Test-Path $TmpDmg) { Remove-Item -Force $TmpDmg }
-if (Test-Path $DmgPath) { Remove-Item -Force $DmgPath }
+if (Test-Path -LiteralPath $TmpDmg) { Remove-Item -Force -LiteralPath $TmpDmg }
+if (Test-Path -LiteralPath $DmgPath) { Remove-Item -Force -LiteralPath $DmgPath }
 
 $VolName = "su-$Arch"
 & hdiutil create -volname $VolName -srcfolder $Stage -ov -format UDRW $TmpDmg
@@ -106,8 +157,8 @@ if ($LASTEXITCODE -ne 0) {
   throw "hdiutil convert failed ($LASTEXITCODE)"
 }
 
-Remove-Item -Force $TmpDmg -ErrorAction SilentlyContinue
-Remove-Item -Recurse -Force $Stage -ErrorAction SilentlyContinue
+Remove-Item -Force -LiteralPath $TmpDmg -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force -LiteralPath $Stage -ErrorAction SilentlyContinue
 
 Write-Host "==> packaged: $DmgPath"
 Write-Host "    notes:   $ReadmePath"
