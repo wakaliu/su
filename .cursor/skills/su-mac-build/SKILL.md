@@ -12,9 +12,9 @@ description: macOS darwin-arm64/x64 未签名 DMG 编译与打包。在需要产
 
 ## 步骤（CI）
 
-1. Actions → **build-mac**（手动）或 **release-mac**（`v*` / 手动 tag）
+1. push `develop`（改动触及 su-ai / branding / scripts / patches / build-mac.yml）会自动跑 **build-mac**；也可 Actions 手动，或 **release-mac**（`v*` / 手动 tag）
 2. 等待 matrix：`macos-14`+arm64、`macos-13`+x64
-3. 从 Release 下载对应 DMG
+3. 从 Pre-release / Release 下载对应 DMG
 
 ## 步骤（本机 Mac）
 

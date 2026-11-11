@@ -1,8 +1,17 @@
 name: build-mac
 
-# Unsigned internal macOS DMGs (darwin-arm64 + darwin-x64). Manual only to control macOS minutes.
+# Unsigned internal macOS DMGs (darwin-arm64 + darwin-x64).
+# Auto on develop (same path filters as build-win) + manual dispatch.
 on:
   workflow_dispatch:
+  push:
+    branches: [develop]
+    paths:
+      - 'extensions/su-ai/**'
+      - 'branding/**'
+      - 'scripts/**'
+      - 'patches/**'
+      - '.github/workflows/build-mac.yml'
 
 permissions:
   contents: write

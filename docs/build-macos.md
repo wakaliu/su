@@ -13,8 +13,10 @@
 
 | Workflow | 触发 | 说明 |
 |----------|------|------|
-| **`build-mac`** | 仅手动 `workflow_dispatch` | 双架构 Pre-release（tag 带 `-mac` 后缀） |
+| **`build-mac`** | push `develop`（路径过滤同 build-win）或手动 | 双架构 Pre-release（tag 带 `-mac` 后缀） |
 | **`release-mac`** | `v*` tag 或手动填 tag | 正式 Release 挂两份 DMG（可与 win zip 同 tag） |
+
+说明：push 触发的路径为 `extensions/su-ai/**`、`branding/**`、`scripts/**`、`patches/**`、`.github/workflows/build-mac.yml`。macOS runner 较贵，无关文档-only 改动不会触发。
 
 Runner：`macos-14` → arm64；`macos-13` → x64。
 
