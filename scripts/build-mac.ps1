@@ -59,20 +59,19 @@ function Ensure-DarwinIcns {
   $iconset = Join-Path $tmp 'code.iconset'
   New-Item -ItemType Directory -Force -Path $iconset | Out-Null
   try {
-    $sizes = @(16, 32, 64, 128, 256, 512, 1024)
+    # Apple iconset slots only (no icon_64x64 / icon_1024x1024).
+    $sizes = @(16, 32, 128, 256, 512)
     foreach ($s in $sizes) {
-      # iconutil expects exact pixel sizes; sips resizes from master PNG.
       $out1 = Join-Path $iconset "icon_${s}x${s}.png"
-      Invoke-Native sips -z $s $s $png --out $out1
-      if ($s -le 512) {
-        $out2 = Join-Path $iconset "icon_${s}x${s}@2x.png"
-        $px = $s * 2
-        Invoke-Native sips -z $px $px $png --out $out2
-      }
+      Invoke-Native -FilePath sips -ArgumentList @('-z', "$s", "$s", $png, '--out', $out1)
+      $out2 = Join-Path $iconset "icon_${s}x${s}@2x.png"
+      $px = $s * 2
+      Invoke-Native -FilePath sips -ArgumentList @('-z', "$px", "$px", $png, '--out', $out2)
     }
     $darwinDir = Join-Path $Root 'branding/icons/darwin'
     New-Item -ItemType Directory -Force -Path $darwinDir | Out-Null
-    Invoke-Native iconutil -c icns $iconset -o $icns
+    # Pass -o via ArgumentList so PowerShell does not treat it as -OutVariable/-OutBuffer.
+    Invoke-Native -FilePath iconutil -ArgumentList @('-c', 'icns', $iconset, '-o', $icns)
     Write-Host "==> generated $icns"
   } finally {
     Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
