@@ -24,17 +24,15 @@
 | `extensions/su-ai/src/userGuide.ts` | 打开用户手册预览 |
 | `extensions/su-ai/src/update.ts` / `version.ts` / `secrets.ts` | 更新 / 版本 / 密钥 |
 
-## 当前版本（v0.4.1）
+## 当前版本（v0.5）
 
-- Chat 容器在**右侧** `secondarySidebar`；启动自动打开
-- 顶栏：标题 + Diff 角标 + `+` + 历史 + `⋯`（设置类进溢出菜单）
-- 底部：**Ask / Agent** pill、模型下拉（含 Auto）、选区 chip
-- 空状态引导；代码块 **复制 / 应用到当前文件**
-- Agent 待审：消息区下方 Keep All / Reject All / 审阅；状态栏 `待审 N`
-- 快捷键：`Ctrl+L` Chat、`Ctrl+I` Agent、`Esc` 停止（`su.chatStreaming`）
-- 产品版本：`0.4.1`
-- 验收：[docs/acceptance/v0.4.md](../acceptance/v0.4.md) · [v0.4.1.md](../acceptance/v0.4.1.md)
-- 下一版验收稿：[v0.5.md](../acceptance/v0.5.md)
+- Chat 右侧栏；拖入**图片**（多模态）/ **文件·文件夹** chip；输入 `/` 选 Skill
+- Skill 来源：工作区 `.cursor/skills`、`.su/skills` + 用户 `~/.cursor/skills`、`~/.cursor/skills-cursor`
+- 相关：`chat/attachments.ts`、`chat/skillsCatalog.ts`
+- 顶栏瘦身 + Ask/Agent pill + Diff 角标（v0.4.1）
+- 快捷键：`Ctrl+L` / `Ctrl+I` / `Esc`
+- 验收：[docs/acceptance/v0.5.md](../acceptance/v0.5.md)（Rules / `@` 检索仍可继续补齐）
+- 产品版本见 `branding/version.json`
 
 ## 禁止
 

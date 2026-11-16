@@ -1,6 +1,12 @@
+/** OpenAI-compatible multimodal content part (text + image_url). */
+export type ChatContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string; detail?: 'auto' | 'low' | 'high' } };
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string | null;
+  /** Plain string or multimodal parts (vision). */
+  content: string | null | ChatContentPart[];
   tool_calls?: ToolCall[];
   tool_call_id?: string;
 }

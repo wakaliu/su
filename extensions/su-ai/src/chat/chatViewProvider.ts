@@ -10,6 +10,12 @@ import { promptAndSetApiKey } from '../secrets';
 import { runAgent } from '../agent/agentRunner';
 import { DiffReviewService } from '../agent/diffReview';
 import {
+  buildUserTurn,
+  resolveDroppedUris,
+  type ChatAttachment,
+} from './attachments';
+import { listInstalledSkills } from './skillsCatalog';
+import {
   createEmptySession,
   LEGACY_HISTORY_KEY,
   normalizeStore,
@@ -27,7 +33,14 @@ const MODE_KEY = 'su.chat.mode';
 
 type WebviewToExt =
   | { type: 'ready' }
-  | { type: 'send'; text: string; includeSelection: boolean; mode: ChatMode; modelPick?: string }
+  | {
+      type: 'send';
+      text: string;
+      includeSelection: boolean;
+      mode: ChatMode;
+      modelPick?: string;
+      attachments?: ChatAttachment[];
+    }
   | { type: 'stop' }
   | { type: 'openSettings' }
   | { type: 'editModels' }
@@ -42,7 +55,9 @@ type WebviewToExt =
   | { type: 'keepAllDiffs' }
   | { type: 'rejectAllDiffs' }
   | { type: 'setModelPick'; pick: string }
-  | { type: 'applyCode'; code: string };
+  | { type: 'applyCode'; code: string }
+  | { type: 'listSkills' }
+  | { type: 'resolveDrop'; uris: string[] };
 
 type ExtToWebview =
   | {
@@ -75,7 +90,21 @@ type ExtToWebview =
   | { type: 'assistantDone' }
   | { type: 'tool'; text: string }
   | { type: 'error'; message: string }
-  | { type: 'stopped' };
+  | { type: 'stopped' }
+  | {
+      type: 'skills';
+      skills: Array<{ id: string; name: string; description: string; source: string }>;
+    }
+  | {
+      type: 'dropResolved';
+      items: Array<{
+        kind: 'file' | 'folder' | 'image';
+        path?: string;
+        name?: string;
+        mime?: string;
+        dataBase64?: string;
+      }>;
+    };
 
 /**
  * Side-bar Chat panel with multi-session history, Ask/Agent mode, and streaming.
@@ -161,7 +190,25 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             raw.includeSelection,
             raw.mode === 'agent' ? 'agent' : 'chat',
             raw.modelPick,
+            raw.attachments,
           );
+          break;
+        case 'listSkills':
+          this.post({
+            type: 'skills',
+            skills: (await listInstalledSkills()).map((s) => ({
+              id: s.id,
+              name: s.name,
+              description: s.description,
+              source: s.source,
+            })),
+          });
+          break;
+        case 'resolveDrop':
+          this.post({
+            type: 'dropResolved',
+            items: await resolveDroppedUris(raw.uris || []),
+          });
           break;
         case 'stop':
           this.stopGeneration();
@@ -431,9 +478,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     includeSelection: boolean,
     mode: ChatMode,
     modelPickFromUi?: string,
+    attachments?: ChatAttachment[],
   ): Promise<void> {
     const trimmed = text.trim();
-    if (!trimmed) {
+    const hasAtt = Boolean(attachments && attachments.length);
+    if (!trimmed && !hasAtt) {
       return;
     }
     if (this.abort) {
@@ -446,20 +495,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       await this.setModelPick(modelPickFromUi);
     }
 
-    let userContent = trimmed;
+    let prompt = trimmed;
     if (includeSelection) {
       const sel = vscode.window.activeTextEditor?.document.getText(
         vscode.window.activeTextEditor.selection,
       );
       if (sel && sel.trim()) {
-        userContent = `${trimmed}\n\n\`\`\`\n${sel.trim()}\n\`\`\``;
+        prompt = `${trimmed}\n\n\`\`\`\n${sel.trim()}\n\`\`\``.trim();
       }
     }
 
-    const next = [...this.history, { role: 'user' as const, content: userContent }];
+    const turn = await buildUserTurn(prompt, attachments);
+    const next = [...this.history, { role: 'user' as const, content: turn.historyText }];
     this.history = next;
     await this.saveHistory();
-    this.post({ type: 'user', text: userContent });
+    this.post({ type: 'user', text: turn.historyText });
     this.post({ type: 'assistantStart' });
     await this.setStreaming(true);
 
@@ -468,9 +518,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.abort = new AbortController();
 
     if (mode === 'agent') {
-      await this.runAgentTurn(userContent, { ...cfg, model: activeModel });
+      // Agent loop currently expects plain text user turn.
+      await this.runAgentTurn(turn.historyText, { ...cfg, model: activeModel });
       return;
     }
+
+    const systemParts = [
+      'You are Su, a helpful coding assistant embedded in the su editor. Prefer Markdown. Reply in the user\'s language when possible.',
+      ...turn.systemExtras,
+    ];
+
+    const historyMsgs = this.history
+      .slice(0, -1)
+      .filter(
+        (m) => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string',
+      ) as ChatMessage[];
 
     let assistant = '';
     try {
@@ -478,16 +540,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         baseUrl: cfg.baseUrl,
         apiKey: cfg.apiKey,
         model: activeModel,
-        timeoutMs: cfg.timeoutMs,
+        timeoutMs: Math.max(
+          cfg.timeoutMs,
+          turn.systemExtras.length > 0 || Array.isArray(turn.apiContent) ? 120_000 : cfg.timeoutMs,
+        ),
         messages: [
-          {
-            role: 'system',
-            content:
-              'You are Su, a helpful coding assistant embedded in the su editor. Prefer Markdown. Reply in the user\'s language when possible.',
-          },
-          ...this.history.filter(
-            (m) => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string',
-          ) as ChatMessage[],
+          { role: 'system', content: systemParts.join('\n\n') },
+          ...historyMsgs,
+          { role: 'user', content: turn.apiContent },
         ],
         signal: this.abort.signal,
         onDelta: (delta) => {
@@ -739,6 +799,38 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     .hp-empty { color: var(--muted); padding: 16px; text-align: center; }
     .streaming-hint { display: none; color: var(--muted); font-size: 11px; }
     .streaming-hint.on { display: inline; }
+    .composer {
+      position: relative; border: 1px solid var(--border); border-radius: 8px;
+      background: var(--input-bg); padding: 6px; display: flex; flex-direction: column; gap: 6px;
+    }
+    .composer.dragover { border-color: var(--focus); box-shadow: 0 0 0 1px var(--focus); }
+    .attach-row { display: none; flex-wrap: wrap; gap: 6px; }
+    .attach-row.show { display: flex; }
+    .attach-chip {
+      display: inline-flex; align-items: center; gap: 4px; max-width: 100%;
+      border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px;
+      font-size: 11px; color: var(--fg); background: color-mix(in srgb, var(--btn-bg) 14%, transparent);
+    }
+    .attach-chip img { width: 28px; height: 28px; object-fit: cover; border-radius: 4px; }
+    .attach-chip .x { border: none; background: transparent; color: var(--muted); cursor: pointer; padding: 0 2px; }
+    .composer textarea {
+      border: none; background: transparent; min-height: 56px; padding: 4px 2px; resize: vertical;
+    }
+    .composer textarea:focus { outline: none; }
+    .slash-menu {
+      display: none; position: absolute; left: 8px; right: 8px; bottom: calc(100% + 6px);
+      max-height: 240px; overflow: auto; z-index: 40;
+      background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+      box-shadow: 0 8px 24px rgba(0,0,0,.35); padding: 4px;
+    }
+    .slash-menu.open { display: block; }
+    .slash-menu .sec { font-size: 10px; color: var(--muted); padding: 6px 8px 2px; text-transform: uppercase; }
+    .slash-item {
+      display: block; width: 100%; text-align: left; border: none; background: transparent;
+      color: var(--fg); border-radius: 6px; padding: 6px 8px; cursor: pointer; font: 12px var(--font);
+    }
+    .slash-item:hover, .slash-item.active { background: var(--list-hover); }
+    .slash-item .desc { color: var(--muted); font-size: 11px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   </style>
 </head>
 <body>
@@ -768,7 +860,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     <button type="button" class="secondary" id="btnReviewBar">审阅</button>
   </div>
   <footer>
-    <textarea id="input" placeholder="问 Su…（Enter 发送，Shift+Enter 换行）"></textarea>
+    <div class="composer" id="composer">
+      <div class="attach-row" id="attachRow"></div>
+      <div class="slash-menu" id="slashMenu"></div>
+      <textarea id="input" placeholder="问 Su… 可拖入图片/文件；输入 / 选 Skill；Enter 发送"></textarea>
+    </div>
     <div class="row">
       <div class="pills" title="Ask=问答；Agent=可改工作区">
         <button type="button" id="pillAsk" class="active">Ask</button>
@@ -781,7 +877,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       <button type="button" class="secondary" id="btnStop" disabled>停止</button>
       <button type="button" class="action" id="btnSend">发送</button>
     </div>
-    <div class="hint">+ 新对话 · ◷ 历史 · Ctrl+L Chat · Ctrl+I Agent</div>
+    <div class="hint">拖入图片识图 · 拖入文件引用 · / Skills · Ctrl+L / Ctrl+I</div>
   </footer>
   <div id="historyPanel" aria-hidden="true">
     <div class="hp-head">
@@ -809,6 +905,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const diffBar = document.getElementById('diffBar');
     const diffBadge = document.getElementById('diffBadge');
     const diffLabel = document.getElementById('diffLabel');
+    const composer = document.getElementById('composer');
+    const attachRow = document.getElementById('attachRow');
+    const slashMenu = document.getElementById('slashMenu');
     let mode = 'chat';
     let includeSel = false;
     let streaming = false;
@@ -816,14 +915,177 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     let currentBody = null;
     let defaultModel = '';
     let messageCount = 0;
+    let attachments = [];
+    let skillsCache = [];
+    let slashIndex = 0;
 
     function setMode(m) {
       mode = m === 'agent' ? 'agent' : 'chat';
       pillAsk.classList.toggle('active', mode === 'chat');
       pillAgent.classList.toggle('active', mode === 'agent');
       input.placeholder = mode === 'agent'
-        ? '给 Agent 下任务…（会读写工作区，写后可 Keep/Reject）'
-        : '问 Su…（Enter 发送，Shift+Enter 换行）';
+        ? '给 Agent 下任务… 可拖文件；/ 选 Skill；写后 Keep/Reject'
+        : '问 Su… 可拖图片/文件；输入 / 选 Skill；Enter 发送';
+    }
+
+    function renderAttachments() {
+      attachRow.innerHTML = '';
+      attachRow.classList.toggle('show', attachments.length > 0);
+      attachments.forEach((a, idx) => {
+        const el = document.createElement('span');
+        el.className = 'attach-chip';
+        if (a.kind === 'image' && a.dataBase64) {
+          const img = document.createElement('img');
+          img.src = 'data:' + (a.mime || 'image/png') + ';base64,' + a.dataBase64;
+          el.appendChild(img);
+          const lab = document.createElement('span');
+          lab.textContent = a.name || 'image';
+          el.appendChild(lab);
+        } else if (a.kind === 'skill') {
+          el.textContent = '/ ' + (a.name || a.id);
+        } else if (a.kind === 'folder') {
+          el.textContent = (a.path || '').split(/[/\\\\]/).filter(Boolean).pop() + '/';
+        } else {
+          const p = a.path || a.name || 'file';
+          el.textContent = p.split(/[/\\\\]/).filter(Boolean).pop() || p;
+        }
+        const x = document.createElement('button');
+        x.type = 'button';
+        x.className = 'x';
+        x.textContent = '×';
+        x.addEventListener('click', () => {
+          attachments.splice(idx, 1);
+          renderAttachments();
+        });
+        el.appendChild(x);
+        attachRow.appendChild(el);
+      });
+    }
+
+    function addAttachment(item) {
+      if (!item) return;
+      if (item.kind === 'image') {
+        attachments.push({
+          kind: 'image',
+          name: item.name || 'image.png',
+          mime: item.mime || 'image/png',
+          dataBase64: item.dataBase64,
+        });
+      } else if (item.kind === 'folder') {
+        attachments.push({ kind: 'folder', path: item.path });
+      } else if (item.kind === 'skill') {
+        if (attachments.some((a) => a.kind === 'skill' && a.id === item.id)) return;
+        attachments.push({ kind: 'skill', id: item.id, name: item.name });
+      } else if (item.kind === 'file' || item.path) {
+        attachments.push({ kind: 'file', path: item.path });
+      }
+      renderAttachments();
+    }
+
+    function fileToAttachment(file) {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = String(reader.result || '');
+          const m = result.match(/^data:([^;]+);base64,(.+)$/);
+          if (!m) { resolve(null); return; }
+          const mime = m[1] || file.type || 'application/octet-stream';
+          if (mime.indexOf('image/') === 0) {
+            resolve({ kind: 'image', name: file.name, mime, dataBase64: m[2] });
+          } else {
+            resolve(null);
+          }
+        };
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function collectDropUris(dt) {
+      const uris = [];
+      const uriList = dt.getData('text/uri-list') || dt.getData('application/vnd.code.uri-list') || '';
+      uriList.split(/\\r?\\n/).forEach((line) => {
+        const t = line.trim();
+        if (t && !t.startsWith('#')) uris.push(t);
+      });
+      const plain = (dt.getData('text/plain') || '').trim();
+      if (plain && (plain.indexOf('file:') === 0 || plain.indexOf('/') === 0 || /^[A-Za-z]:\\\\/.test(plain))) {
+        uris.push(plain);
+      }
+      return uris;
+    }
+
+    async function handleDrop(e) {
+      e.preventDefault();
+      composer.classList.remove('dragover');
+      const dt = e.dataTransfer;
+      if (!dt) return;
+      const files = dt.files ? Array.from(dt.files) : [];
+      for (const f of files) {
+        if (f.type && f.type.indexOf('image/') === 0) {
+          const att = await fileToAttachment(f);
+          if (att) addAttachment(att);
+        }
+      }
+      const uris = collectDropUris(dt);
+      if (uris.length) {
+        vscode.postMessage({ type: 'resolveDrop', uris });
+      }
+    }
+
+    function closeSlash() {
+      slashMenu.classList.remove('open');
+      slashMenu.innerHTML = '';
+      slashIndex = 0;
+    }
+
+    function openSlash(filterText) {
+      const q = (filterText || '').toLowerCase();
+      const list = (skillsCache || []).filter((s) => {
+        if (!q) return true;
+        return (s.name + ' ' + s.description + ' ' + s.id).toLowerCase().indexOf(q) >= 0;
+      }).slice(0, 40);
+      slashMenu.innerHTML = '';
+      if (!list.length) {
+        slashMenu.innerHTML = '<div class="sec">无匹配 Skill</div>';
+        slashMenu.classList.add('open');
+        return;
+      }
+      const sec = document.createElement('div');
+      sec.className = 'sec';
+      sec.textContent = 'Skills';
+      slashMenu.appendChild(sec);
+      list.forEach((s, i) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'slash-item' + (i === 0 ? ' active' : '');
+        btn.dataset.index = String(i);
+        btn.innerHTML = '<div>/' + escapeHtml(s.name) + '</div><div class="desc"></div>';
+        btn.querySelector('.desc').textContent = s.description || s.source;
+        btn.addEventListener('click', () => pickSkill(s));
+        slashMenu.appendChild(btn);
+      });
+      slashIndex = 0;
+      slashMenu.classList.add('open');
+    }
+
+    function pickSkill(s) {
+      addAttachment({ kind: 'skill', id: s.id, name: s.name });
+      const v = input.value;
+      input.value = v.replace(/(^|\\s)\\/[^\\s]*$/, '$1').replace(/\\s+$/, ' ');
+      closeSlash();
+      input.focus();
+    }
+
+    function maybeSlash() {
+      const v = input.value;
+      const m = v.match(/(?:^|\\s)\\/([^\\s]*)$/);
+      if (!m) { closeSlash(); return; }
+      const filter = m[1] || '';
+      if (!skillsCache.length) {
+        vscode.postMessage({ type: 'listSkills' });
+      }
+      openSlash(filter);
     }
     pillAsk.addEventListener('click', () => { setMode('chat'); vscode.postMessage({ type: 'setMode', mode: 'chat' }); });
     pillAgent.addEventListener('click', () => { setMode('agent'); vscode.postMessage({ type: 'setMode', mode: 'agent' }); });
@@ -991,14 +1253,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     function send() {
       if (streaming) return;
       const text = input.value;
-      if (!text.trim()) return;
+      if (!text.trim() && !attachments.length) return;
+      closeSlash();
+      const payload = attachments.slice();
       input.value = '';
+      attachments = [];
+      renderAttachments();
       vscode.postMessage({
         type: 'send',
         text,
         includeSelection: includeSel,
         mode,
         modelPick: modelPick.value,
+        attachments: payload,
       });
     }
 
@@ -1066,15 +1333,55 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       e.stopPropagation();
       moreMenu.classList.toggle('open');
     });
-    document.body.addEventListener('click', () => moreMenu.classList.remove('open'));
+    document.body.addEventListener('click', (e) => {
+      moreMenu.classList.remove('open');
+      if (!slashMenu.contains(e.target) && e.target !== input) closeSlash();
+    });
     document.getElementById('mModels').addEventListener('click', () => vscode.postMessage({ type: 'editModels' }));
     document.getElementById('mKey').addEventListener('click', () => vscode.postMessage({ type: 'setApiKey' }));
     document.getElementById('mSettings').addEventListener('click', () => vscode.postMessage({ type: 'openSettings' }));
     document.getElementById('mManual').addEventListener('click', () => vscode.postMessage({ type: 'openUserManual' }));
+
+    ;['dragenter', 'dragover'].forEach((ev) => {
+      composer.addEventListener(ev, (e) => {
+        e.preventDefault();
+        composer.classList.add('dragover');
+      });
+    });
+    composer.addEventListener('dragleave', () => composer.classList.remove('dragover'));
+    composer.addEventListener('drop', (e) => { void handleDrop(e); });
+
+    input.addEventListener('input', () => maybeSlash());
     input.addEventListener('keydown', (e) => {
+      if (slashMenu.classList.contains('open')) {
+        const items = Array.from(slashMenu.querySelectorAll('.slash-item'));
+        if (e.key === 'ArrowDown' && items.length) {
+          e.preventDefault();
+          slashIndex = Math.min(items.length - 1, slashIndex + 1);
+          items.forEach((el, i) => el.classList.toggle('active', i === slashIndex));
+          return;
+        }
+        if (e.key === 'ArrowUp' && items.length) {
+          e.preventDefault();
+          slashIndex = Math.max(0, slashIndex - 1);
+          items.forEach((el, i) => el.classList.toggle('active', i === slashIndex));
+          return;
+        }
+        if (e.key === 'Enter' && items[slashIndex]) {
+          e.preventDefault();
+          items[slashIndex].click();
+          return;
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          closeSlash();
+          return;
+        }
+      }
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
       if (e.key === 'Escape' && streaming) { vscode.postMessage({ type: 'stop' }); }
     });
+    vscode.postMessage({ type: 'listSkills' });
     thread.addEventListener('click', (e) => {
       const a = e.target.closest && e.target.closest('a');
       if (a && a.href) e.preventDefault();
@@ -1144,6 +1451,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             currentBody = null;
           }
           addMsg('error', msg.message, 'error', false);
+          break;
+        case 'skills':
+          skillsCache = msg.skills || [];
+          maybeSlash();
+          break;
+        case 'dropResolved':
+          (msg.items || []).forEach((it) => addAttachment(it));
           break;
       }
     });

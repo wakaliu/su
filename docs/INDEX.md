@@ -18,6 +18,6 @@
 | [acceptance/v0.4.md](acceptance/v0.4.md) | v0.4 验收清单（Agent + Diff） |
 | [acceptance/v0.4.1.md](acceptance/v0.4.1.md) | v0.4.1 验收清单（Chat/Diff 抛光） |
 | [decisions/ADR-0002-agent-tool-boundary.md](decisions/ADR-0002-agent-tool-boundary.md) | Agent 工具边界 |
-| [acceptance/v0.5.md](acceptance/v0.5.md) | v0.5 验收清单（Rules / @上下文 / 轻量检索） |
+| [acceptance/v0.5.md](acceptance/v0.5.md) | v0.5 验收清单（拖图拖文件 / Skills / Rules·@） |
 
 根目录入口：[AGENTS.md](../AGENTS.md) · [ROADMAP.md](../ROADMAP.md)
