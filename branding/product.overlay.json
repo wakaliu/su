@@ -26,6 +26,7 @@
     "workbench.startupEditor": "welcomePage",
     "window.restoreWindows": "none",
     "workbench.secondarySideBar.defaultVisibility": "visible",
-    "security.workspace.trust.enabled": false
+    "security.workspace.trust.enabled": false,
+    "editor.fontSize": 16
   }
 }

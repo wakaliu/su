@@ -100,7 +100,22 @@ su 使用**同一套** Base URL + API Key，可配置多个模型 id：
 
 ---
 
-## 7. 检查更新
+## 7. 编辑区字体大小
+
+中间代码/文件编辑区字号**已有**上游设置，无需另做功能：
+
+| 方式 | 操作 |
+|------|------|
+| 只调编辑器字号 | `Ctrl+,` 打开设置 → 搜 **Font Size** → **Editor: Font Size**（产品默认 **16**） |
+| 快捷键整界面缩放 | `Ctrl+=` 放大、`Ctrl+-` 缩小、`Ctrl+0` 重置（影响侧栏/菜单等整窗） |
+| 命令面板 | `Ctrl+Shift+P` → 输入 `Zoom In` / `Zoom Out` / `Reset Zoom` |
+| 鼠标（可选） | 设置打开 **Editor: Mouse Wheel Zoom** 后，按住 `Ctrl` 滚轮只缩编辑区 |
+
+工作区可写 `.vscode/settings.json`：`"editor.fontSize": 16`。
+
+---
+
+## 8. 检查更新
 
 - 菜单 **帮助 → Su → 检查更新**，或命令 `Su: 检查更新`。
 - 更新源为 GitHub Releases（默认仓库可在 `Su › Update: Repo` 修改）。
@@ -108,7 +123,7 @@ su 使用**同一套** Base URL + API Key，可配置多个模型 id：
 
 ---
 
-## 8. 常用命令速查
+## 9. 常用命令速查
 
 | 命令 | 作用 |
 |------|------|
@@ -125,7 +140,7 @@ su 使用**同一套** Base URL + API Key，可配置多个模型 id：
 
 ---
 
-## 9. 隐私说明
+## 10. 隐私说明
 
 - API Key **仅本机** SecretStorage，不随工程提交。
 - 对话内容会发往你配置的 Base URL（中转 / 模型服务商），请使用可信中转。

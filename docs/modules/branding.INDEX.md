@@ -39,3 +39,4 @@
 | `chat.disableAIFeatures` | `true` | 关闭微软 Agents/Chat 壳，改用 su-ai |
 | `workbench.startupEditor` | `welcomePage` | 启动显示欢迎页 |
 | `window.restoreWindows` | `none` | 避免恢复上次的 `agent-sessions.code-workspace` |
+| `editor.fontSize` | `16` | 中间编辑区默认字号（可在设置里再调） |
