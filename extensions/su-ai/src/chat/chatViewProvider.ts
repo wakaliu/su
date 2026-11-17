@@ -650,6 +650,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       `default-src 'none'`,
       `style-src ${webview.cspSource} 'unsafe-inline'`,
       `script-src 'nonce-${nonce}'`,
+      // data: needed for dragged image thumbnails in the composer
+      `img-src ${webview.cspSource} data: blob:`,
     ].join('; ');
 
     return `<!DOCTYPE html>
@@ -804,15 +806,33 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       background: var(--input-bg); padding: 6px; display: flex; flex-direction: column; gap: 6px;
     }
     .composer.dragover { border-color: var(--focus); box-shadow: 0 0 0 1px var(--focus); }
-    .attach-row { display: none; flex-wrap: wrap; gap: 6px; }
+    .attach-row { display: none; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
     .attach-row.show { display: flex; }
     .attach-chip {
-      display: inline-flex; align-items: center; gap: 4px; max-width: 100%;
-      border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px;
+      display: inline-flex; align-items: center; gap: 6px; max-width: 100%;
+      border: 1px solid var(--border); border-radius: 999px; padding: 3px 8px 3px 10px;
       font-size: 11px; color: var(--fg); background: color-mix(in srgb, var(--btn-bg) 14%, transparent);
+      position: relative;
     }
-    .attach-chip img { width: 28px; height: 28px; object-fit: cover; border-radius: 4px; }
-    .attach-chip .x { border: none; background: transparent; color: var(--muted); cursor: pointer; padding: 0 2px; }
+    .attach-chip.file-chip {
+      border-radius: 8px; background: color-mix(in srgb, var(--vscode-textLink-foreground) 18%, transparent);
+      border-color: color-mix(in srgb, var(--vscode-textLink-foreground) 45%, var(--border));
+    }
+    .attach-chip.image-chip {
+      flex-direction: column; align-items: stretch; border-radius: 10px; padding: 4px;
+      background: color-mix(in srgb, var(--bg) 70%, black); max-width: 120px;
+    }
+    .attach-chip.image-chip img {
+      width: 108px; height: 72px; object-fit: cover; border-radius: 8px; display: block;
+      background: var(--code-bg);
+    }
+    .attach-chip.image-chip .cap {
+      display: flex; align-items: center; gap: 4px; padding: 2px 4px; max-width: 108px;
+    }
+    .attach-chip.image-chip .cap span {
+      flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; color: var(--muted);
+    }
+    .attach-chip .x { border: none; background: transparent; color: var(--muted); cursor: pointer; padding: 0 2px; line-height: 1; }
     .composer textarea {
       border: none; background: transparent; min-height: 56px; padding: 4px 2px; resize: vertical;
     }
@@ -908,6 +928,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const composer = document.getElementById('composer');
     const attachRow = document.getElementById('attachRow');
     const slashMenu = document.getElementById('slashMenu');
+    const footer = document.querySelector('footer');
     let mode = 'chat';
     let includeSel = false;
     let streaming = false;
@@ -928,27 +949,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         : '问 Su… 可拖图片/文件；输入 / 选 Skill；Enter 发送';
     }
 
+    function isImagePath(p) {
+      return /\\.(png|jpe?g|gif|webp|bmp)$/i.test(String(p || ''));
+    }
+
+    function basenameOf(p) {
+      return String(p || '').split(/[/\\\\]/).filter(Boolean).pop() || String(p || 'file');
+    }
+
     function renderAttachments() {
       attachRow.innerHTML = '';
       attachRow.classList.toggle('show', attachments.length > 0);
       attachments.forEach((a, idx) => {
         const el = document.createElement('span');
-        el.className = 'attach-chip';
-        if (a.kind === 'image' && a.dataBase64) {
-          const img = document.createElement('img');
-          img.src = 'data:' + (a.mime || 'image/png') + ';base64,' + a.dataBase64;
-          el.appendChild(img);
-          const lab = document.createElement('span');
-          lab.textContent = a.name || 'image';
-          el.appendChild(lab);
-        } else if (a.kind === 'skill') {
-          el.textContent = '/ ' + (a.name || a.id);
-        } else if (a.kind === 'folder') {
-          el.textContent = (a.path || '').split(/[/\\\\]/).filter(Boolean).pop() + '/';
-        } else {
-          const p = a.path || a.name || 'file';
-          el.textContent = p.split(/[/\\\\]/).filter(Boolean).pop() || p;
-        }
         const x = document.createElement('button');
         x.type = 'button';
         x.className = 'x';
@@ -957,7 +970,32 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           attachments.splice(idx, 1);
           renderAttachments();
         });
-        el.appendChild(x);
+        if (a.kind === 'image' && a.dataBase64) {
+          el.className = 'attach-chip image-chip';
+          const img = document.createElement('img');
+          img.alt = a.name || 'image';
+          img.src = 'data:' + (a.mime || 'image/png') + ';base64,' + a.dataBase64;
+          el.appendChild(img);
+          const cap = document.createElement('div');
+          cap.className = 'cap';
+          const lab = document.createElement('span');
+          lab.textContent = a.name || 'image';
+          cap.appendChild(lab);
+          cap.appendChild(x);
+          el.appendChild(cap);
+        } else if (a.kind === 'skill') {
+          el.className = 'attach-chip';
+          el.appendChild(document.createTextNode('/ ' + (a.name || a.id)));
+          el.appendChild(x);
+        } else if (a.kind === 'folder') {
+          el.className = 'attach-chip file-chip';
+          el.appendChild(document.createTextNode(basenameOf(a.path) + '/'));
+          el.appendChild(x);
+        } else {
+          el.className = 'attach-chip file-chip';
+          el.appendChild(document.createTextNode(basenameOf(a.path || a.name || 'file')));
+          el.appendChild(x);
+        }
         attachRow.appendChild(el);
       });
     }
@@ -965,6 +1003,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     function addAttachment(item) {
       if (!item) return;
       if (item.kind === 'image') {
+        if (!item.dataBase64) {
+          if (item.path) vscode.postMessage({ type: 'resolveDrop', uris: [item.path] });
+          return;
+        }
         attachments.push({
           kind: 'image',
           name: item.name || 'image.png',
@@ -972,12 +1014,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           dataBase64: item.dataBase64,
         });
       } else if (item.kind === 'folder') {
+        if (attachments.some((a) => a.kind === 'folder' && a.path === item.path)) return;
         attachments.push({ kind: 'folder', path: item.path });
       } else if (item.kind === 'skill') {
         if (attachments.some((a) => a.kind === 'skill' && a.id === item.id)) return;
         attachments.push({ kind: 'skill', id: item.id, name: item.name });
       } else if (item.kind === 'file' || item.path) {
-        attachments.push({ kind: 'file', path: item.path });
+        const p = item.path || '';
+        if (isImagePath(p)) {
+          vscode.postMessage({ type: 'resolveDrop', uris: [p] });
+          return;
+        }
+        if (attachments.some((a) => a.kind === 'file' && a.path === p)) return;
+        attachments.push({ kind: 'file', path: p });
       }
       renderAttachments();
     }
@@ -990,8 +1039,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           const m = result.match(/^data:([^;]+);base64,(.+)$/);
           if (!m) { resolve(null); return; }
           const mime = m[1] || file.type || 'application/octet-stream';
-          if (mime.indexOf('image/') === 0) {
-            resolve({ kind: 'image', name: file.name, mime, dataBase64: m[2] });
+          if (mime.indexOf('image/') === 0 || isImagePath(file.name)) {
+            resolve({ kind: 'image', name: file.name, mime: mime.indexOf('image/') === 0 ? mime : 'image/png', dataBase64: m[2] });
           } else {
             resolve(null);
           }
@@ -1003,34 +1052,59 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     function collectDropUris(dt) {
       const uris = [];
-      const uriList = dt.getData('text/uri-list') || dt.getData('application/vnd.code.uri-list') || '';
-      uriList.split(/\\r?\\n/).forEach((line) => {
-        const t = line.trim();
-        if (t && !t.startsWith('#')) uris.push(t);
+      const pushLine = (line) => {
+        const t = String(line || '').trim();
+        if (!t || t.startsWith('#')) return;
+        if (uris.indexOf(t) < 0) uris.push(t);
+      };
+      const types = dt.types ? Array.from(dt.types) : [];
+      types.forEach((t) => {
+        try {
+          const data = dt.getData(t);
+          if (!data) return;
+          if (t === 'text/uri-list' || t.indexOf('uri-list') >= 0 || t.indexOf('vnd.code') >= 0) {
+            data.split(/\\r?\\n/).forEach(pushLine);
+          }
+        } catch (_) {}
       });
+      if (!uris.length) {
+        const uriList = dt.getData('text/uri-list') || dt.getData('application/vnd.code.uri-list') || '';
+        uriList.split(/\\r?\\n/).forEach(pushLine);
+      }
       const plain = (dt.getData('text/plain') || '').trim();
-      if (plain && (plain.indexOf('file:') === 0 || plain.indexOf('/') === 0 || /^[A-Za-z]:\\\\/.test(plain))) {
-        uris.push(plain);
+      if (plain && (plain.indexOf('file:') === 0 || plain.indexOf('vscode-') === 0 || plain.indexOf('/') === 0 || /^[A-Za-z]:[\\\\/]/.test(plain))) {
+        plain.split(/\\r?\\n/).forEach(pushLine);
       }
       return uris;
     }
 
     async function handleDrop(e) {
       e.preventDefault();
+      e.stopPropagation();
       composer.classList.remove('dragover');
       const dt = e.dataTransfer;
       if (!dt) return;
+      const uris = collectDropUris(dt);
       const files = dt.files ? Array.from(dt.files) : [];
       for (const f of files) {
-        if (f.type && f.type.indexOf('image/') === 0) {
+        const fpath = f.path || '';
+        if (fpath) pushUniqueUri(uris, fpath);
+        const looksImg = (f.type && f.type.indexOf('image/') === 0) || isImagePath(f.name);
+        if (looksImg) {
           const att = await fileToAttachment(f);
           if (att) addAttachment(att);
+          else if (fpath) pushUniqueUri(uris, fpath);
+        } else if (!fpath && f.name) {
+          // no Electron path — cannot read arbitrary files in webview; skip
         }
       }
-      const uris = collectDropUris(dt);
       if (uris.length) {
         vscode.postMessage({ type: 'resolveDrop', uris });
       }
+    }
+
+    function pushUniqueUri(arr, u) {
+      if (u && arr.indexOf(u) < 0) arr.push(u);
     }
 
     function closeSlash() {
@@ -1342,14 +1416,35 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     document.getElementById('mSettings').addEventListener('click', () => vscode.postMessage({ type: 'openSettings' }));
     document.getElementById('mManual').addEventListener('click', () => vscode.postMessage({ type: 'openUserManual' }));
 
+    function onDragOver(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+      composer.classList.add('dragover');
+    }
+    const dropTargets = [composer, footer, document.body].filter(Boolean);
     ;['dragenter', 'dragover'].forEach((ev) => {
-      composer.addEventListener(ev, (e) => {
-        e.preventDefault();
-        composer.classList.add('dragover');
+      dropTargets.forEach((el) => el.addEventListener(ev, onDragOver));
+    });
+    dropTargets.forEach((el) => {
+      el.addEventListener('dragleave', (e) => {
+        if (e.target === el) composer.classList.remove('dragover');
+      });
+      el.addEventListener('drop', (e) => { void handleDrop(e); });
+    });
+    // Paste image from clipboard (Cursor-like).
+    input.addEventListener('paste', (e) => {
+      const items = e.clipboardData && e.clipboardData.items ? Array.from(e.clipboardData.items) : [];
+      items.forEach((it) => {
+        if (it.type && it.type.indexOf('image/') === 0) {
+          const f = it.getAsFile();
+          if (f) {
+            e.preventDefault();
+            void fileToAttachment(f).then((att) => { if (att) addAttachment(att); });
+          }
+        }
       });
     });
-    composer.addEventListener('dragleave', () => composer.classList.remove('dragover'));
-    composer.addEventListener('drop', (e) => { void handleDrop(e); });
 
     input.addEventListener('input', () => maybeSlash());
     input.addEventListener('keydown', (e) => {

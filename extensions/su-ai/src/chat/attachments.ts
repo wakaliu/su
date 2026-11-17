@@ -199,17 +199,36 @@ export async function resolveDroppedUris(
 }
 
 async function resolveFsPath(input: string): Promise<string | undefined> {
-  const s = (input || '').trim();
+  let s = (input || '').trim().replace(/^"+|"+$/g, '');
   if (!s) {
     return undefined;
   }
+  // Windows file:///C:/... or file:///C%3A/...
   try {
-    if (s.startsWith('file:') || s.startsWith('vscode-file:') || s.includes('://')) {
+    if (
+      s.startsWith('file:') ||
+      s.startsWith('vscode-file:') ||
+      s.startsWith('vscode-resource:') ||
+      s.includes('://')
+    ) {
       const uri = vscode.Uri.parse(s);
-      return uri.fsPath;
+      if (uri.scheme === 'file' || uri.fsPath) {
+        const p = uri.fsPath;
+        if (p && fs.existsSync(p)) {
+          return p;
+        }
+      }
     }
   } catch {
     // fall through
+  }
+  // Decode percent-encoding leftover in plain paths
+  try {
+    if (/%[0-9A-Fa-f]{2}/.test(s)) {
+      s = decodeURIComponent(s);
+    }
+  } catch {
+    // keep original
   }
   if (path.isAbsolute(s) && fs.existsSync(s)) {
     return s;
