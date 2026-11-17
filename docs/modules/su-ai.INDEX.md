@@ -27,6 +27,7 @@
 ## 当前版本（v0.5）
 
 - Chat 右侧栏；拖入**图片**（多模态）/ **文件·文件夹** chip；输入 `/` 选 Skill
+- Ask / **Agent** 本轮均可把图片以 `image_url` 发给模型（`agentRunner` 接受 `userContent` + `systemExtras`）；历史存文本摘要
 - Skill 来源：工作区 `.cursor/skills`、`.su/skills` + 用户 `~/.cursor/skills`、`~/.cursor/skills-cursor`
 - 相关：`chat/attachments.ts`、`chat/skillsCatalog.ts`
 - 顶栏瘦身 + Ask/Agent pill + Diff 角标（v0.4.1）

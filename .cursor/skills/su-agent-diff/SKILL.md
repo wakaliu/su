@@ -22,6 +22,7 @@ description: Agent 多文件编辑与 Inline Diff 审阅（v0.4+）。
 - 写入进入 `DiffReviewService`；`Su: 审阅 Agent 改动` → Keep / Reject
 - Chat：Diff 角标、待审条（Keep All / Reject All / 审阅）；状态栏 `待审 N`
 - Chat 面板 **Agent** 模式触发；中转与 Chat 共用
+- 支持本轮拖入图片（`image_url` 多模态，需视觉模型）；历史仍存文本摘要
 - 不自动提权 / 不写工作区外路径
 
 ## 验收

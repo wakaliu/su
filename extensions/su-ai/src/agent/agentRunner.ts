@@ -1,5 +1,9 @@
 import * as vscode from 'vscode';
-import { completeChatWithTools, type ChatMessage } from '../openaiClient';
+import {
+  completeChatWithTools,
+  type ChatContentPart,
+  type ChatMessage,
+} from '../openaiClient';
 import { DiffReviewService } from './diffReview';
 import { buildAgentTools, executeAgentTool } from './tools';
 
@@ -8,7 +12,10 @@ export interface AgentRunOptions {
   apiKey: string;
   model: string;
   timeoutMs: number;
-  userText: string;
+  /** Plain text or multimodal parts (vision) for the current user turn. */
+  userContent: string | ChatContentPart[];
+  /** Extra system fragments (e.g. selected Skills). */
+  systemExtras?: string[];
   history: ChatMessage[];
   signal?: AbortSignal;
   diffs: DiffReviewService;
@@ -22,6 +29,7 @@ export type AgentEvent =
 
 /**
  * Runs a tool-calling Agent loop against an OpenAI-compatible endpoint.
+ * Current-turn user content may include images (OpenAI vision parts).
  */
 export async function runAgent(opts: AgentRunOptions): Promise<void> {
   const cfg = vscode.workspace.getConfiguration('su');
@@ -29,17 +37,32 @@ export async function runAgent(opts: AgentRunOptions): Promise<void> {
   const enableTerminal = cfg.get<boolean>('agent.enableTerminal', true);
   const tools = buildAgentTools(enableTerminal);
 
+  const systemParts = [
+    'You are Su Agent inside the su editor. You can inspect and edit files in the workspace using tools. ' +
+      'Prefer replace_in_file for small edits. After tools finish, summarize what you changed. ' +
+      'You may receive images in the user message; read them (UI screenshots, error dialogs, diagrams) and use that information when planning tool calls. ' +
+      'Reply in the user\'s language. Do not claim you ran commands the user skipped.',
+    ...(opts.systemExtras || []),
+  ];
+
+  const historyMsgs = opts.history
+    .filter((m) => m.role === 'user' || m.role === 'assistant')
+    .filter((m) => typeof m.content === 'string' || m.content === null)
+    .slice(-20);
+
   const messages: ChatMessage[] = [
     {
       role: 'system',
-      content:
-        'You are Su Agent inside the su editor. You can inspect and edit files in the workspace using tools. ' +
-        'Prefer replace_in_file for small edits. After tools finish, summarize what you changed. ' +
-        'Reply in the user\'s language. Do not claim you ran commands the user skipped.',
+      content: systemParts.join('\n\n'),
     },
-    ...opts.history.filter((m) => m.role === 'user' || m.role === 'assistant').slice(-20),
-    { role: 'user', content: opts.userText },
+    ...historyMsgs,
+    { role: 'user', content: opts.userContent },
   ];
+
+  const timeoutMs = Math.max(
+    opts.timeoutMs,
+    Array.isArray(opts.userContent) ? 120_000 : opts.timeoutMs,
+  );
 
   for (let step = 0; step < maxSteps; step++) {
     if (opts.signal?.aborted) {
@@ -50,7 +73,7 @@ export async function runAgent(opts: AgentRunOptions): Promise<void> {
       baseUrl: opts.baseUrl,
       apiKey: opts.apiKey,
       model: opts.model,
-      timeoutMs: opts.timeoutMs,
+      timeoutMs,
       messages,
       tools,
       signal: opts.signal,

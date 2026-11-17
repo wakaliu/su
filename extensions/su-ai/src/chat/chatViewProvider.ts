@@ -518,8 +518,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.abort = new AbortController();
 
     if (mode === 'agent') {
-      // Agent loop currently expects plain text user turn.
-      await this.runAgentTurn(turn.historyText, { ...cfg, model: activeModel });
+      await this.runAgentTurn(turn.apiContent, turn.systemExtras, {
+        ...cfg,
+        model: activeModel,
+        timeoutMs: Math.max(
+          cfg.timeoutMs,
+          turn.systemExtras.length > 0 || Array.isArray(turn.apiContent) ? 120_000 : cfg.timeoutMs,
+        ),
+      });
       return;
     }
 
@@ -579,7 +585,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   private async runAgentTurn(
-    userContent: string,
+    userContent: import('../openaiClient').ChatMessage['content'],
+    systemExtras: string[],
     cfg: { baseUrl: string; apiKey: string; model: string; timeoutMs: number },
   ): Promise<void> {
     let assistant = '';
@@ -589,7 +596,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         apiKey: cfg.apiKey,
         model: cfg.model,
         timeoutMs: cfg.timeoutMs,
-        userText: userContent,
+        userContent: userContent ?? '',
+        systemExtras,
         history: this.history.slice(0, -1),
         signal: this.abort?.signal,
         diffs: this.diffs,
