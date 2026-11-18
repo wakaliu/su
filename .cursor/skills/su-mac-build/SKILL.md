@@ -34,6 +34,7 @@ description: macOS darwin-arm64/x64 未签名 DMG 编译与打包。在需要产
 - Windows 主机无法出 Mac 包
 - 未签名：Gatekeeper 需右键打开或 `xattr -cr`
 - 勿再用已退役的 `macos-14` / `macos-13` runner
+- `npm ci` 若因 `cdn.playwright.dev` DNS 失败：确认 `build-mac.ps1` 已设 `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`
 
 ## 相关
 

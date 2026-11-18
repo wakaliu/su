@@ -137,6 +137,17 @@ if (-not $env:CFLAGS) {
   $env:CFLAGS = ''
 }
 
+# Packaging does not run Playwright/e2e; skip browser CDN downloads that flake
+# (ENOTFOUND cdn.playwright.dev). Matches upstream product-build env.
+if (-not $env:PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD) {
+  $env:PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = '1'
+  Write-Host '==> PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1'
+}
+if (-not $env:ELECTRON_SKIP_BINARY_DOWNLOAD) {
+  $env:ELECTRON_SKIP_BINARY_DOWNLOAD = '1'
+  Write-Host '==> ELECTRON_SKIP_BINARY_DOWNLOAD=1 (gulp fetches electron later)'
+}
+
 $spectreLibCandidates = @(
   "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2019\Community\VC\Tools\MSVC\14.29.30133\lib\spectre\x64",
   "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2019\BuildTools\VC\Tools\MSVC\14.29.30133\lib\spectre\x64"

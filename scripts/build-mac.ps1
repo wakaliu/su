@@ -120,6 +120,17 @@ if (-not $env:CXXFLAGS) {
   Write-Host "==> CXXFLAGS=$env:CXXFLAGS (tree-sitter / native addons for Node 24)"
 }
 
+# Packaging does not run Playwright/e2e; skip ~180MB+ browser downloads that
+# often flake on CDN DNS (cdn.playwright.dev). Matches upstream product-build.
+if (-not $env:PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD) {
+  $env:PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = '1'
+  Write-Host '==> PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1'
+}
+if (-not $env:ELECTRON_SKIP_BINARY_DOWNLOAD) {
+  $env:ELECTRON_SKIP_BINARY_DOWNLOAD = '1'
+  Write-Host '==> ELECTRON_SKIP_BINARY_DOWNLOAD=1 (gulp fetches electron later)'
+}
+
 Ensure-DarwinIcns
 
 Push-Location $Vendor
