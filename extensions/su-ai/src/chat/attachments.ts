@@ -7,6 +7,8 @@ import { loadSkillById } from './skillsCatalog';
 export type ChatAttachment =
   | { kind: 'image'; name: string; mime: string; dataBase64: string }
   | { kind: 'file'; path: string }
+  /** OS/webview drop without filesystem path — content already read in the webview. */
+  | { kind: 'fileInline'; name: string; text: string }
   | { kind: 'folder'; path: string }
   | { kind: 'skill'; id: string; name?: string };
 
@@ -128,6 +130,18 @@ export async function buildUserTurn(
       const block = await readFileBlock(fsPath);
       historyChunks.push(block);
       labels.push(path.basename(fsPath));
+      continue;
+    }
+
+    if (att.kind === 'fileInline') {
+      const name = att.name || 'file';
+      let text = att.text || '';
+      if (text.length > MAX_TEXT_FILE) {
+        text = text.slice(0, MAX_TEXT_FILE) + '\n…(truncated)';
+      }
+      const lang = path.extname(name).replace(/^\./, '');
+      historyChunks.push(`Referenced file: ${name}\n\`\`\`${lang}\n${text}\n\`\`\``);
+      labels.push(name);
       continue;
     }
 

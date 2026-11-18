@@ -57,7 +57,8 @@ type WebviewToExt =
   | { type: 'setModelPick'; pick: string }
   | { type: 'applyCode'; code: string }
   | { type: 'listSkills' }
-  | { type: 'resolveDrop'; uris: string[] };
+  | { type: 'resolveDrop'; uris: string[] }
+  | { type: 'pickFiles' };
 
 type ExtToWebview =
   | {
@@ -210,6 +211,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             items: await resolveDroppedUris(raw.uris || []),
           });
           break;
+        case 'pickFiles': {
+          const picked = await vscode.window.showOpenDialog({
+            canSelectFiles: true,
+            canSelectFolders: true,
+            canSelectMany: true,
+            openLabel: '添加到 Chat',
+          });
+          if (picked?.length) {
+            this.post({
+              type: 'dropResolved',
+              items: await resolveDroppedUris(picked.map((u) => u.fsPath)),
+            });
+          }
+          break;
+        }
         case 'stop':
           this.stopGeneration();
           break;
@@ -823,8 +839,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       position: relative;
     }
     .attach-chip.file-chip {
-      border-radius: 8px; background: color-mix(in srgb, var(--vscode-textLink-foreground) 18%, transparent);
-      border-color: color-mix(in srgb, var(--vscode-textLink-foreground) 45%, var(--border));
+      background: color-mix(in srgb, var(--focus) 22%, var(--input-bg));
+      border-color: color-mix(in srgb, var(--focus) 45%, var(--border));
     }
     .attach-chip.image-chip {
       flex-direction: column; align-items: stretch; border-radius: 10px; padding: 4px;
@@ -899,13 +915,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         <button type="button" id="pillAgent">Agent</button>
       </div>
       <select id="modelPick" aria-label="选择模型"><option value="auto">Auto</option></select>
+      <button type="button" class="secondary" id="btnAttach" title="添加文件/文件夹">📎</button>
       <span class="chip" id="selChip" title="发送时附带当前选区">选区</span>
       <span class="streaming-hint" id="streamHint">生成中 · Esc 停止</span>
       <span style="flex:1"></span>
       <button type="button" class="secondary" id="btnStop" disabled>停止</button>
       <button type="button" class="action" id="btnSend">发送</button>
     </div>
-    <div class="hint">拖入图片识图 · 拖入文件引用 · / Skills · Ctrl+L / Ctrl+I</div>
+    <div class="hint">拖入图片/文件（侧栏拖入若被拦截可按住 Shift）· 📎 添加 · / Skills</div>
   </footer>
   <div id="historyPanel" aria-hidden="true">
     <div class="hp-head">
@@ -997,10 +1014,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           el.appendChild(x);
         } else if (a.kind === 'folder') {
           el.className = 'attach-chip file-chip';
+          el.title = a.path || '';
           el.appendChild(document.createTextNode(basenameOf(a.path) + '/'));
+          el.appendChild(x);
+        } else if (a.kind === 'fileInline') {
+          el.className = 'attach-chip file-chip';
+          el.title = a.name || 'file';
+          el.appendChild(document.createTextNode(a.name || 'file'));
           el.appendChild(x);
         } else {
           el.className = 'attach-chip file-chip';
+          el.title = a.path || a.name || '';
           el.appendChild(document.createTextNode(basenameOf(a.path || a.name || 'file')));
           el.appendChild(x);
         }
@@ -1027,8 +1051,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       } else if (item.kind === 'skill') {
         if (attachments.some((a) => a.kind === 'skill' && a.id === item.id)) return;
         attachments.push({ kind: 'skill', id: item.id, name: item.name });
+      } else if (item.kind === 'fileInline') {
+        const name = item.name || 'file';
+        if (attachments.some((a) => a.kind === 'fileInline' && a.name === name && a.text === item.text)) return;
+        attachments.push({ kind: 'fileInline', name: name, text: String(item.text || '') });
       } else if (item.kind === 'file' || item.path) {
         const p = item.path || '';
+        if (!p) return;
         if (isImagePath(p)) {
           vscode.postMessage({ type: 'resolveDrop', uris: [p] });
           return;
@@ -1041,49 +1070,99 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     function fileToAttachment(file) {
       return new Promise((resolve) => {
+        const looksImg = (file.type && file.type.indexOf('image/') === 0) || isImagePath(file.name);
+        if (looksImg) {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = String(reader.result || '');
+            const m = result.match(/^data:([^;]+);base64,(.+)$/);
+            if (!m) { resolve(null); return; }
+            const mime = m[1] || file.type || 'image/png';
+            resolve({
+              kind: 'image',
+              name: file.name,
+              mime: mime.indexOf('image/') === 0 ? mime : 'image/png',
+              dataBase64: m[2],
+            });
+          };
+          reader.onerror = () => resolve(null);
+          reader.readAsDataURL(file);
+          return;
+        }
+        // OS/webview often strips File.path; read text so code files still become chips.
+        if (file.size > 400000) {
+          resolve(null);
+          return;
+        }
         const reader = new FileReader();
         reader.onload = () => {
-          const result = String(reader.result || '');
-          const m = result.match(/^data:([^;]+);base64,(.+)$/);
-          if (!m) { resolve(null); return; }
-          const mime = m[1] || file.type || 'application/octet-stream';
-          if (mime.indexOf('image/') === 0 || isImagePath(file.name)) {
-            resolve({ kind: 'image', name: file.name, mime: mime.indexOf('image/') === 0 ? mime : 'image/png', dataBase64: m[2] });
-          } else {
+          const text = String(reader.result || '');
+          if (!text || /[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F]/.test(text.slice(0, 2048))) {
             resolve(null);
+            return;
           }
+          resolve({ kind: 'fileInline', name: file.name || 'file', text: text.slice(0, 100000) });
         };
         reader.onerror = () => resolve(null);
-        reader.readAsDataURL(file);
+        reader.readAsText(file);
+      });
+    }
+
+    function pushUniqueUri(arr, u) {
+      const t = String(u || '').trim();
+      if (!t || t.startsWith('#')) return;
+      if (arr.indexOf(t) < 0) arr.push(t);
+    }
+
+    function harvestUrisFromText(text, into) {
+      const raw = String(text || '');
+      if (!raw.trim()) return;
+      // ResourceURLs / some VS Code payloads are JSON string arrays.
+      if (raw.charAt(0) === '[') {
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            parsed.forEach((x) => pushUniqueUri(into, String(x)));
+            return;
+          }
+        } catch (_) {}
+      }
+      raw.split(/\\r?\\n/).forEach((line) => {
+        const t = String(line || '').trim();
+        if (!t || t.startsWith('#')) return;
+        pushUniqueUri(into, t);
+        const re = /(file:\\/\\/[^\\s]+|vscode-[a-z-]+:\\/\\/[^\\s]+|[A-Za-z]:[\\\\/][^\\r\\n\\t\"<>|*?]+|\\/(?:Users|home|tmp|var|mnt|Volumes)[^\\r\\n\\t\"<>|*?]*)/g;
+        let m;
+        while ((m = re.exec(t))) {
+          pushUniqueUri(into, m[1]);
+        }
       });
     }
 
     function collectDropUris(dt) {
       const uris = [];
-      const pushLine = (line) => {
-        const t = String(line || '').trim();
-        if (!t || t.startsWith('#')) return;
-        if (uris.indexOf(t) < 0) uris.push(t);
-      };
+      const prefer = [
+        'text/uri-list',
+        'application/vnd.code.uri-list',
+        'resourceurls',
+        'ResourceURLs',
+        'text/plain',
+      ];
+      prefer.forEach((t) => {
+        try { harvestUrisFromText(dt.getData(t), uris); } catch (_) {}
+      });
       const types = dt.types ? Array.from(dt.types) : [];
       types.forEach((t) => {
-        try {
-          const data = dt.getData(t);
-          if (!data) return;
-          if (t === 'text/uri-list' || t.indexOf('uri-list') >= 0 || t.indexOf('vnd.code') >= 0) {
-            data.split(/\\r?\\n/).forEach(pushLine);
-          }
-        } catch (_) {}
+        if (prefer.indexOf(t) >= 0) return;
+        try { harvestUrisFromText(dt.getData(t), uris); } catch (_) {}
       });
-      if (!uris.length) {
-        const uriList = dt.getData('text/uri-list') || dt.getData('application/vnd.code.uri-list') || '';
-        uriList.split(/\\r?\\n/).forEach(pushLine);
-      }
-      const plain = (dt.getData('text/plain') || '').trim();
-      if (plain && (plain.indexOf('file:') === 0 || plain.indexOf('vscode-') === 0 || plain.indexOf('/') === 0 || /^[A-Za-z]:[\\\\/]/.test(plain))) {
-        plain.split(/\\r?\\n/).forEach(pushLine);
-      }
-      return uris;
+      return uris.filter((u) =>
+        u.indexOf('file:') === 0 ||
+        u.indexOf('vscode-') === 0 ||
+        u.indexOf('/') === 0 ||
+        /^[A-Za-z]:[\\\\/]/.test(u) ||
+        u.indexOf('\\\\') === 0
+      );
     }
 
     async function handleDrop(e) {
@@ -1094,25 +1173,34 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       if (!dt) return;
       const uris = collectDropUris(dt);
       const files = dt.files ? Array.from(dt.files) : [];
+      let added = 0;
       for (const f of files) {
         const fpath = f.path || '';
         if (fpath) pushUniqueUri(uris, fpath);
-        const looksImg = (f.type && f.type.indexOf('image/') === 0) || isImagePath(f.name);
-        if (looksImg) {
-          const att = await fileToAttachment(f);
-          if (att) addAttachment(att);
-          else if (fpath) pushUniqueUri(uris, fpath);
-        } else if (!fpath && f.name) {
-          // no Electron path — cannot read arbitrary files in webview; skip
+        const att = await fileToAttachment(f);
+        if (att) {
+          addAttachment(att);
+          added += 1;
+        } else if (fpath) {
+          pushUniqueUri(uris, fpath);
         }
       }
       if (uris.length) {
         vscode.postMessage({ type: 'resolveDrop', uris });
+        return;
+      }
+      if (!added && !files.length) {
+        // Explorer drops sometimes need Shift so the webview receives the event with uri-list.
+        metaFlash('未识别到文件路径：可按住 Shift 再拖，或点 📎 添加');
       }
     }
 
-    function pushUniqueUri(arr, u) {
-      if (u && arr.indexOf(u) < 0) arr.push(u);
+    function metaFlash(text) {
+      const meta = document.getElementById('meta');
+      if (!meta) return;
+      const prev = meta.textContent;
+      meta.textContent = text;
+      setTimeout(() => { if (meta.textContent === text) meta.textContent = prev; }, 3500);
     }
 
     function closeSlash() {
@@ -1423,6 +1511,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     document.getElementById('mKey').addEventListener('click', () => vscode.postMessage({ type: 'setApiKey' }));
     document.getElementById('mSettings').addEventListener('click', () => vscode.postMessage({ type: 'openSettings' }));
     document.getElementById('mManual').addEventListener('click', () => vscode.postMessage({ type: 'openUserManual' }));
+    document.getElementById('btnAttach').addEventListener('click', () => vscode.postMessage({ type: 'pickFiles' }));
 
     function onDragOver(e) {
       e.preventDefault();
