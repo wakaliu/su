@@ -2,7 +2,7 @@
   "name": "su-ai",
   "displayName": "Su AI",
   "description": "Built-in AI assistant for su (Chat, Ghost Text, Agent + Diff).",
-  "version": "0.4.1",
+  "version": "0.6.0",
   "publisher": "su",
   "engines": {
     "vscode": "^1.136.0"
@@ -96,6 +96,18 @@
         "title": "添加到 Su Chat",
         "category": "Su",
         "icon": "$(add)"
+      },
+      {
+        "command": "su.openAgentWindow",
+        "title": "Su: 打开 Agent Window",
+        "category": "Su",
+        "icon": "$(window)"
+      },
+      {
+        "command": "su.openIdeWindow",
+        "title": "Su: 打开 IDE Window",
+        "category": "Su",
+        "icon": "$(files)"
       }
     ],
     "keybindings": [
@@ -178,11 +190,24 @@
           "group": "1_chat@7"
         },
         {
+          "command": "su.openAgentWindow",
+          "group": "1_chat@8"
+        },
+        {
+          "command": "su.openIdeWindow",
+          "group": "1_chat@9"
+        },
+        {
           "command": "su.checkForUpdates",
           "group": "2_update@1"
         }
       ],
       "view/title": [
+        {
+          "command": "su.openAgentWindow",
+          "when": "view == su.chat",
+          "group": "navigation@0"
+        },
         {
           "command": "su.reviewAgentDiffs",
           "when": "view == su.chat",
@@ -290,6 +315,11 @@
           "type": "boolean",
           "default": true,
           "description": "允许 Agent 使用 run_terminal（每次仍需确认）。"
+        },
+        "su.rules.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "将工作区 .su/rules/ 下 markdown 规则注入 Chat/Agent system 提示（无文件时静默跳过）。"
         },
         "su.update.checkOnStartup": {
           "type": "boolean",

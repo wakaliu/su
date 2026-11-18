@@ -14,7 +14,9 @@ import {
   resolveDroppedUris,
   type ChatAttachment,
 } from './attachments';
+import { listAtMentionItems } from './atMentions';
 import { runAskWithTools } from './askRunner';
+import { loadWorkspaceRulesFragment } from './rulesCatalog';
 import { listInstalledSkills } from './skillsCatalog';
 import { buildWorkspaceContextSnippet } from './workspaceContext';
 import {
@@ -59,9 +61,12 @@ type WebviewToExt =
   | { type: 'setModelPick'; pick: string }
   | { type: 'applyCode'; code: string }
   | { type: 'listSkills' }
+  | { type: 'listAtMentions'; filter?: string }
   | { type: 'resolveDrop'; uris: string[] }
   | { type: 'pickFiles' }
-  | { type: 'attachActiveFile' };
+  | { type: 'attachActiveFile' }
+  | { type: 'openAgentWindow' }
+  | { type: 'openIdeWindow' };
 
 type ExtToWebview =
   | {
@@ -100,6 +105,16 @@ type ExtToWebview =
       skills: Array<{ id: string; name: string; description: string; source: string }>;
     }
   | {
+      type: 'atMentions';
+      items: Array<{
+        kind: 'selection' | 'file' | 'folder';
+        id: string;
+        label: string;
+        detail: string;
+        path?: string;
+      }>;
+    }
+  | {
       type: 'dropResolved';
       items: Array<{
         kind: 'file' | 'folder' | 'image';
@@ -117,6 +132,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'su.chat';
 
   private view?: vscode.WebviewView;
+  private agentPanel?: vscode.WebviewPanel;
   private abort?: AbortController;
   private store: SessionStore;
   private streaming = false;
@@ -180,7 +196,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       void vscode.window.showWarningMessage('没有可添加的文件/文件夹。');
       return;
     }
-    await this.open();
+    if (!this.agentPanel) {
+      await this.open();
+    }
     this.post({
       type: 'dropResolved',
       items: await resolveDroppedUris(list.map((u) => u.fsPath || u.toString())),
@@ -197,121 +215,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       enableScripts: true,
       localResourceRoots: [this.context.extensionUri],
     };
-    webviewView.webview.html = this.getHtml(webviewView.webview);
+    webviewView.webview.html = this.getHtml(webviewView.webview, 'ide');
 
-    webviewView.webview.onDidReceiveMessage(async (raw: WebviewToExt) => {
-      switch (raw.type) {
-        case 'ready':
-          await this.pushStatus();
-          this.pushRestore();
-          break;
-        case 'send':
-          await this.handleSend(
-            raw.text,
-            raw.includeSelection,
-            raw.mode === 'agent' ? 'agent' : 'chat',
-            raw.modelPick,
-            raw.attachments,
-          );
-          break;
-        case 'listSkills':
-          this.post({
-            type: 'skills',
-            skills: (await listInstalledSkills()).map((s) => ({
-              id: s.id,
-              name: s.name,
-              description: s.description,
-              source: s.source,
-            })),
-          });
-          break;
-        case 'resolveDrop':
-          this.post({
-            type: 'dropResolved',
-            items: await resolveDroppedUris(raw.uris || []),
-          });
-          break;
-        case 'pickFiles': {
-          const picked = await vscode.window.showOpenDialog({
-            canSelectFiles: true,
-            canSelectFolders: true,
-            canSelectMany: true,
-            openLabel: '添加到 Chat',
-          });
-          if (picked?.length) {
-            this.post({
-              type: 'dropResolved',
-              items: await resolveDroppedUris(picked.map((u) => u.fsPath)),
-            });
-          }
-          break;
-        }
-        case 'attachActiveFile': {
-          const doc = vscode.window.activeTextEditor?.document;
-          if (!doc || doc.isUntitled || doc.uri.scheme !== 'file') {
-            void vscode.window.showWarningMessage('当前没有可引用的已保存文件。');
-            break;
-          }
-          await this.attachResources([doc.uri]);
-          break;
-        }
-        case 'stop':
-          this.stopGeneration();
-          break;
-        case 'newChat':
-          await this.newSession();
-          break;
-        case 'listSessions':
-          this.post({ type: 'sessions', sessions: sessionSummaries(this.store) });
-          break;
-        case 'switchSession':
-          await this.switchSession(raw.id);
-          break;
-        case 'deleteSession':
-          await this.deleteSession(raw.id);
-          break;
-        case 'setMode':
-          await this.setMode(raw.mode === 'agent' ? 'agent' : 'chat');
-          break;
-        case 'reviewDiffs':
-          await vscode.commands.executeCommand('su.reviewAgentDiffs');
-          break;
-        case 'keepAllDiffs': {
-          const n = await this.diffs.keepAll();
-          void vscode.window.showInformationMessage(n ? `已 Keep ${n} 个文件。` : '没有待审改动。');
-          this.emitDiffsChanged();
-          await this.pushStatus();
-          break;
-        }
-        case 'rejectAllDiffs': {
-          const n = await this.diffs.rejectAll();
-          void vscode.window.showInformationMessage(n ? `已 Reject ${n} 个文件。` : '没有待审改动。');
-          this.emitDiffsChanged();
-          await this.pushStatus();
-          break;
-        }
-        case 'openSettings':
-          await vscode.commands.executeCommand('su.openSettings');
-          break;
-        case 'editModels':
-          await vscode.commands.executeCommand('su.editModels');
-          break;
-        case 'setApiKey':
-          await promptAndSetApiKey(this.context);
-          await this.pushStatus();
-          break;
-        case 'openUserManual':
-          await vscode.commands.executeCommand('su.openUserManual');
-          break;
-        case 'setModelPick':
-          await this.setModelPick(raw.pick);
-          break;
-        case 'applyCode':
-          await this.applyCodeToEditor(raw.code);
-          break;
-        default:
-          break;
-      }
+    webviewView.webview.onDidReceiveMessage((raw: WebviewToExt) => {
+      void this.onWebviewMessage(raw);
     });
 
     webviewView.onDidChangeVisibility(() => {
@@ -319,6 +226,180 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         void this.pushStatus();
       }
     });
+  }
+
+  /**
+   * Opens the Su Agent Window (editor-area chat shell). Shares sessions with the IDE side chat.
+   */
+  async openAgentWindow(): Promise<void> {
+    if (this.agentPanel) {
+      this.agentPanel.reveal(vscode.ViewColumn.One, false);
+      await this.pushStatus();
+      this.pushRestore();
+      return;
+    }
+
+    const panel = vscode.window.createWebviewPanel(
+      'su.agentWindow',
+      'Su Agent Window',
+      vscode.ViewColumn.One,
+      {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+        localResourceRoots: [this.context.extensionUri],
+      },
+    );
+    this.agentPanel = panel;
+    panel.iconPath = vscode.Uri.joinPath(this.context.extensionUri, 'media', 'su.svg');
+    panel.webview.html = this.getHtml(panel.webview, 'agent');
+    panel.webview.onDidReceiveMessage((raw: WebviewToExt) => {
+      void this.onWebviewMessage(raw);
+    });
+    panel.onDidDispose(() => {
+      this.agentPanel = undefined;
+    });
+    this.context.subscriptions.push(panel);
+    await this.pushStatus();
+    this.pushRestore();
+  }
+
+  /**
+   * Returns to classic IDE layout: focus auxiliary Su Chat and optionally close Agent Window.
+   */
+  async openIdeWindow(opts?: { closeAgentPanel?: boolean }): Promise<void> {
+    if (opts?.closeAgentPanel !== false && this.agentPanel) {
+      this.agentPanel.dispose();
+      this.agentPanel = undefined;
+    }
+    await this.open();
+  }
+
+  /** Shared message handler for IDE side-bar and Agent Window webviews. */
+  private async onWebviewMessage(raw: WebviewToExt): Promise<void> {
+    switch (raw.type) {
+      case 'ready':
+        await this.pushStatus();
+        this.pushRestore();
+        break;
+      case 'send':
+        await this.handleSend(
+          raw.text,
+          raw.includeSelection,
+          raw.mode === 'agent' ? 'agent' : 'chat',
+          raw.modelPick,
+          raw.attachments,
+        );
+        break;
+      case 'listSkills':
+        this.post({
+          type: 'skills',
+          skills: (await listInstalledSkills()).map((s) => ({
+            id: s.id,
+            name: s.name,
+            description: s.description,
+            source: s.source,
+          })),
+        });
+        break;
+      case 'listAtMentions':
+        this.post({
+          type: 'atMentions',
+          items: await listAtMentionItems(raw.filter),
+        });
+        break;
+      case 'resolveDrop':
+        this.post({
+          type: 'dropResolved',
+          items: await resolveDroppedUris(raw.uris || []),
+        });
+        break;
+      case 'pickFiles': {
+        const picked = await vscode.window.showOpenDialog({
+          canSelectFiles: true,
+          canSelectFolders: true,
+          canSelectMany: true,
+          openLabel: '添加到 Chat',
+        });
+        if (picked?.length) {
+          this.post({
+            type: 'dropResolved',
+            items: await resolveDroppedUris(picked.map((u) => u.fsPath)),
+          });
+        }
+        break;
+      }
+      case 'attachActiveFile': {
+        const doc = vscode.window.activeTextEditor?.document;
+        if (!doc || doc.isUntitled || doc.uri.scheme !== 'file') {
+          void vscode.window.showWarningMessage('当前没有可引用的已保存文件。');
+          break;
+        }
+        await this.attachResources([doc.uri]);
+        break;
+      }
+      case 'stop':
+        this.stopGeneration();
+        break;
+      case 'newChat':
+        await this.newSession();
+        break;
+      case 'listSessions':
+        this.post({ type: 'sessions', sessions: sessionSummaries(this.store) });
+        break;
+      case 'switchSession':
+        await this.switchSession(raw.id);
+        break;
+      case 'deleteSession':
+        await this.deleteSession(raw.id);
+        break;
+      case 'setMode':
+        await this.setMode(raw.mode === 'agent' ? 'agent' : 'chat');
+        break;
+      case 'reviewDiffs':
+        await vscode.commands.executeCommand('su.reviewAgentDiffs');
+        break;
+      case 'keepAllDiffs': {
+        const n = await this.diffs.keepAll();
+        void vscode.window.showInformationMessage(n ? `已 Keep ${n} 个文件。` : '没有待审改动。');
+        this.emitDiffsChanged();
+        await this.pushStatus();
+        break;
+      }
+      case 'rejectAllDiffs': {
+        const n = await this.diffs.rejectAll();
+        void vscode.window.showInformationMessage(n ? `已 Reject ${n} 个文件。` : '没有待审改动。');
+        this.emitDiffsChanged();
+        await this.pushStatus();
+        break;
+      }
+      case 'openSettings':
+        await vscode.commands.executeCommand('su.openSettings');
+        break;
+      case 'editModels':
+        await vscode.commands.executeCommand('su.editModels');
+        break;
+      case 'setApiKey':
+        await promptAndSetApiKey(this.context);
+        await this.pushStatus();
+        break;
+      case 'openUserManual':
+        await vscode.commands.executeCommand('su.openUserManual');
+        break;
+      case 'setModelPick':
+        await this.setModelPick(raw.pick);
+        break;
+      case 'applyCode':
+        await this.applyCodeToEditor(raw.code);
+        break;
+      case 'openAgentWindow':
+        await this.openAgentWindow();
+        break;
+      case 'openIdeWindow':
+        await this.openIdeWindow();
+        break;
+      default:
+        break;
+    }
   }
 
   private emitDiffsChanged(): void {
@@ -552,7 +633,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     const turn = await buildUserTurn(prompt, attachments);
     const workspaceCtx = await buildWorkspaceContextSnippet();
-    const systemExtras = [workspaceCtx, ...turn.systemExtras];
+    const rulesFrag = await loadWorkspaceRulesFragment();
+    const systemExtras = [
+      workspaceCtx,
+      ...(rulesFrag ? [rulesFrag] : []),
+      ...turn.systemExtras,
+    ];
     const next = [...this.history, { role: 'user' as const, content: turn.historyText }];
     this.history = next;
     await this.saveHistory();
@@ -711,9 +797,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   private post(msg: ExtToWebview): void {
     void this.view?.webview.postMessage(msg);
+    void this.agentPanel?.webview.postMessage(msg);
   }
 
-  private getHtml(webview: vscode.Webview): string {
+  private getHtml(webview: vscode.Webview, surface: 'ide' | 'agent' = 'ide'): string {
     const nonce = getNonce();
     const csp = [
       `default-src 'none'`,
@@ -722,6 +809,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       // data: needed for dragged image thumbnails in the composer
       `img-src ${webview.cspSource} data: blob:`,
     ].join('; ');
+    const switchBtn =
+      surface === 'agent'
+        ? `<button type="button" class="icon-btn" id="btnIdeWindow" title="回到 IDE Window">IDE ↗</button>`
+        : `<button type="button" class="icon-btn" id="btnAgentWindow" title="打开 Agent Window">Agent ↗</button>`;
 
     return `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -729,7 +820,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="${csp}" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Su Chat</title>
+  <title>${surface === 'agent' ? 'Su Agent Window' : 'Su Chat'}</title>
   <style>
     :root {
       color-scheme: light dark;
@@ -974,7 +1065,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 <body>
   <header>
     <div class="top-row">
-      <div class="title" id="sessionTitle">Su Chat</div>
+      <div class="title" id="sessionTitle">${surface === 'agent' ? 'Su Agent Window' : 'Su Chat'}</div>
+      ${switchBtn}
       <button type="button" class="icon-btn" id="btnDiff" title="审阅 Diff">⇄<span class="badge hidden" id="diffBadge">0</span></button>
       <button type="button" class="icon-btn" id="btnNew" title="新对话">+</button>
       <button type="button" class="icon-btn" id="btnHistory" title="历史记录">◷</button>
@@ -1002,7 +1094,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       <div class="drop-hint" id="dropHint">松开以添加引用<br/>若从左侧资源管理器/标签拖入无效，请按住 <strong>Shift</strong> 再松手<br/>或右键「添加到 Su Chat」</div>
       <div class="attach-row" id="attachRow"></div>
       <div class="slash-menu" id="slashMenu"></div>
-      <textarea id="input" placeholder="问 Su… 可拖入图片/文件；输入 / 选 Skill；Enter 发送"></textarea>
+      <textarea id="input" placeholder="问 Su… 拖文件；/ Skills；@ 引用；Enter 发送"></textarea>
     </div>
     <div class="row">
       <div class="pills" title="Ask=问答；Agent=可改工作区">
@@ -1018,7 +1110,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       <button type="button" class="secondary" id="btnStop" disabled>停止</button>
       <button type="button" class="action" id="btnSend">发送</button>
     </div>
-    <div class="hint">Windows 可直接拖入；侧栏/标签请按住 Shift 拖，或右键「添加到 Su Chat」· 📎 / 当前文件 · / Skills</div>
+    <div class="hint">拖入 / Shift 侧栏拖 / 右键添加 · 📎 当前文件 · / Skills · @ 引用 · Rules:.su/rules</div>
   </footer>
   <div id="historyPanel" aria-hidden="true">
     <div class="hp-head">
@@ -1061,15 +1153,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     let messageCount = 0;
     let attachments = [];
     let skillsCache = [];
+    let atCache = [];
     let slashIndex = 0;
+    /** 'slash' | 'at' | '' */
+    let menuKind = '';
 
     function setMode(m) {
       mode = m === 'agent' ? 'agent' : 'chat';
       pillAsk.classList.toggle('active', mode === 'chat');
       pillAgent.classList.toggle('active', mode === 'agent');
       input.placeholder = mode === 'agent'
-        ? '给 Agent 下任务… 可拖文件；/ 选 Skill；写后 Keep/Reject'
-        : '问 Su… 可拖图片/文件；输入 / 选 Skill；Enter 发送';
+        ? '给 Agent 下任务… 拖文件；/ Skill；@ 引用；写后 Keep/Reject'
+        : '问 Su… 拖文件；/ Skill；@ 引用；Enter 发送';
     }
 
     function isImagePath(p) {
@@ -1322,9 +1417,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       slashMenu.classList.remove('open');
       slashMenu.innerHTML = '';
       slashIndex = 0;
+      menuKind = '';
     }
 
     function openSlash(filterText) {
+      menuKind = 'slash';
       const q = (filterText || '').toLowerCase();
       const list = (skillsCache || []).filter((s) => {
         if (!q) return true;
@@ -1354,6 +1451,32 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       slashMenu.classList.add('open');
     }
 
+    function openAtMenu(items) {
+      menuKind = 'at';
+      slashMenu.innerHTML = '';
+      if (!items || !items.length) {
+        slashMenu.innerHTML = '<div class="sec">无匹配引用</div>';
+        slashMenu.classList.add('open');
+        return;
+      }
+      const sec = document.createElement('div');
+      sec.className = 'sec';
+      sec.textContent = '@ 上下文';
+      slashMenu.appendChild(sec);
+      items.forEach((it, i) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'slash-item' + (i === 0 ? ' active' : '');
+        btn.dataset.index = String(i);
+        btn.innerHTML = '<div>@' + escapeHtml(it.label) + '</div><div class="desc"></div>';
+        btn.querySelector('.desc').textContent = it.detail || it.kind;
+        btn.addEventListener('click', () => pickAt(it));
+        slashMenu.appendChild(btn);
+      });
+      slashIndex = 0;
+      slashMenu.classList.add('open');
+    }
+
     function pickSkill(s) {
       addAttachment({ kind: 'skill', id: s.id, name: s.name });
       const v = input.value;
@@ -1362,8 +1485,28 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       input.focus();
     }
 
+    function pickAt(it) {
+      if (it.kind === 'selection') {
+        includeSel = true;
+        selChip.classList.add('on');
+      } else if (it.kind === 'folder' && it.path) {
+        addAttachment({ kind: 'folder', path: it.path });
+      } else if (it.path) {
+        addAttachment({ kind: 'file', path: it.path });
+      }
+      const v = input.value;
+      input.value = v.replace(/(^|\\s)@[^\\s]*$/, '$1').replace(/\\s+$/, ' ');
+      closeSlash();
+      input.focus();
+    }
+
     function maybeSlash() {
       const v = input.value;
+      const at = v.match(/(?:^|\\s)@([^\\s]*)$/);
+      if (at) {
+        vscode.postMessage({ type: 'listAtMentions', filter: at[1] || '' });
+        return;
+      }
       const m = v.match(/(?:^|\\s)\\/([^\\s]*)$/);
       if (!m) { closeSlash(); return; }
       const filter = m[1] || '';
@@ -1700,6 +1843,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     document.getElementById('mManual').addEventListener('click', () => vscode.postMessage({ type: 'openUserManual' }));
     document.getElementById('btnAttach').addEventListener('click', () => vscode.postMessage({ type: 'pickFiles' }));
     document.getElementById('btnActiveFile').addEventListener('click', () => vscode.postMessage({ type: 'attachActiveFile' }));
+    const btnAgentWindow = document.getElementById('btnAgentWindow');
+    if (btnAgentWindow) btnAgentWindow.addEventListener('click', () => vscode.postMessage({ type: 'openAgentWindow' }));
+    const btnIdeWindow = document.getElementById('btnIdeWindow');
+    if (btnIdeWindow) btnIdeWindow.addEventListener('click', () => vscode.postMessage({ type: 'openIdeWindow' }));
 
     function onDragOver(e) {
       e.preventDefault();
@@ -1850,6 +1997,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         case 'skills':
           skillsCache = msg.skills || [];
           maybeSlash();
+          break;
+        case 'atMentions':
+          atCache = msg.items || [];
+          openAtMenu(atCache);
           break;
         case 'dropResolved':
           (msg.items || []).forEach((it) => addAttachment(it));

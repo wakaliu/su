@@ -99,7 +99,16 @@ export function activate(context: vscode.ExtensionContext): void {
         await chat.attachResources(list);
       },
     ),
+    vscode.commands.registerCommand('su.openAgentWindow', () => chat.openAgentWindow()),
+    vscode.commands.registerCommand('su.openIdeWindow', () => chat.openIdeWindow()),
   );
+
+  const agentWindowStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 98);
+  agentWindowStatus.text = '$(window) Agent Window';
+  agentWindowStatus.tooltip = '打开 Su Agent Window（对话主界面）';
+  agentWindowStatus.command = 'su.openAgentWindow';
+  agentWindowStatus.show();
+  context.subscriptions.push(agentWindowStatus);
 
   const updates = new UpdateService(context);
   updates.activate();
@@ -111,7 +120,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push({ dispose: () => clearTimeout(openTimer) });
 
   const cfg = getSuConfig();
-  console.log(`[su-ai] activated v0.4.1; model=${cfg.model}; baseUrl=${cfg.baseUrl}; version=${updates.currentVersion}`);
+  console.log(`[su-ai] activated v0.6.0; model=${cfg.model}; baseUrl=${cfg.baseUrl}; version=${updates.currentVersion}`);
 }
 
 /**
