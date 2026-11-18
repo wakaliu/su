@@ -5,7 +5,7 @@ import {
   resolveActiveModel,
   resolveSuRuntimeConfig,
 } from '../config';
-import { streamChatCompletion, type ChatMessage } from '../openaiClient';
+import { friendlyChatError, streamChatCompletion, type ChatMessage } from '../openaiClient';
 import { promptAndSetApiKey } from '../secrets';
 import { runAgent } from '../agent/agentRunner';
 import { DiffReviewService } from '../agent/diffReview';
@@ -591,7 +591,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
         this.post({ type: 'stopped' });
       } else {
-        this.post({ type: 'error', message });
+        this.post({
+          type: 'error',
+          message: friendlyChatError(message, { hadImages: Array.isArray(turn.apiContent) }),
+        });
       }
     } finally {
       this.abort = undefined;
@@ -654,7 +657,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
         this.post({ type: 'stopped' });
       } else {
-        this.post({ type: 'error', message });
+        this.post({
+          type: 'error',
+          message: friendlyChatError(message, { hadImages: Array.isArray(userContent) }),
+        });
       }
     } finally {
       this.abort = undefined;

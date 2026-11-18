@@ -297,5 +297,50 @@ function formatHttpError(status: number, body: string): string {
   if (status === 429) {
     return `请求过于频繁 HTTP 429${snippet ? `: ${snippet}` : ''}`;
   }
+  const visionHint = explainVisionCapabilityError(snippet);
+  if (visionHint) {
+    return visionHint;
+  }
   return `请求失败 HTTP ${status}${snippet ? `: ${snippet}` : ''}`;
+}
+
+/**
+ * Maps common upstream rejections of multimodal parts to an actionable Chinese hint.
+ */
+export function explainVisionCapabilityError(raw: string): string | undefined {
+  const s = (raw || '').toLowerCase();
+  const onlyTextAllowed =
+    (s.includes('取值范围') && (s.includes("['text']") || s.includes('["text"]') || s.includes('[text]'))) ||
+    (s.includes('type') && s.includes('非法') && s.includes('text'));
+  const mentionsImage =
+    s.includes('image_url') || s.includes('image') || s.includes('multimodal') || s.includes('vision');
+  const rejectsCapability =
+    s.includes('not support') ||
+    s.includes('unsupported') ||
+    s.includes('does not support') ||
+    s.includes('不支持');
+  if (!onlyTextAllowed && !(mentionsImage && (rejectsCapability || s.includes('非法') || s.includes('invalid')))) {
+    return undefined;
+  }
+  return (
+    '当前模型/中转不支持图片（仅接受文本 content）。' +
+    '请在下拉框改选带视觉能力的模型（如 glm-4v、gpt-4o），或先移除图片再发送。'
+  );
+}
+
+/**
+ * Rewrites LLM errors when the user turn included images.
+ */
+export function friendlyChatError(message: string, opts?: { hadImages?: boolean }): string {
+  const vision = explainVisionCapabilityError(message);
+  if (vision) {
+    return vision;
+  }
+  if (opts?.hadImages && /HTTP\s*400/i.test(message)) {
+    return (
+      `${message}\n` +
+      '若本轮带了图片：请确认所选模型支持视觉（glm-5.x 等纯文本模型通常不行），或换 glm-4v / gpt-4o。'
+    );
+  }
+  return message;
 }
