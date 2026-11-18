@@ -85,6 +85,20 @@ export function activate(context: vscode.ExtensionContext): void {
       void vscode.window.showInformationMessage(n ? `已 Reject ${n} 个文件。` : '没有待审改动。');
       await chat.refreshStatus();
     }),
+    vscode.commands.registerCommand(
+      'su.addToChat',
+      async (uri?: vscode.Uri, uris?: vscode.Uri[]) => {
+        const list =
+          uris && uris.length
+            ? uris
+            : uri
+              ? [uri]
+              : vscode.window.activeTextEditor?.document.uri
+                ? [vscode.window.activeTextEditor.document.uri]
+                : [];
+        await chat.attachResources(list);
+      },
+    ),
   );
 
   const updates = new UpdateService(context);

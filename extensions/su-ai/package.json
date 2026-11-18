@@ -90,6 +90,12 @@
         "command": "su.rejectAllAgentDiffs",
         "title": "Su: Reject 全部 Agent 改动",
         "category": "Su"
+      },
+      {
+        "command": "su.addToChat",
+        "title": "添加到 Su Chat",
+        "category": "Su",
+        "icon": "$(add)"
       }
     ],
     "keybindings": [
@@ -181,6 +187,27 @@
           "command": "su.reviewAgentDiffs",
           "when": "view == su.chat",
           "group": "navigation@1"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "su.addToChat",
+          "group": "2_workspace@99",
+          "when": "resourceScheme == file"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "su.addToChat",
+          "group": "1_cutcopypaste@99",
+          "when": "resourceScheme == file"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "su.addToChat",
+          "group": "navigation@99",
+          "when": "resourceScheme == file"
         }
       ]
     },

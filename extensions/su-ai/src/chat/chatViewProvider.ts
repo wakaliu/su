@@ -60,7 +60,8 @@ type WebviewToExt =
   | { type: 'applyCode'; code: string }
   | { type: 'listSkills' }
   | { type: 'resolveDrop'; uris: string[] }
-  | { type: 'pickFiles' };
+  | { type: 'pickFiles' }
+  | { type: 'attachActiveFile' };
 
 type ExtToWebview =
   | {
@@ -169,6 +170,23 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     await this.pushStatus();
   }
 
+  /**
+   * Attaches workspace resources to the Chat composer (explorer / editor context menu).
+   * Used when HTML5 drag from the workbench into the webview is blocked without Shift.
+   */
+  async attachResources(uris: readonly vscode.Uri[]): Promise<void> {
+    const list = uris.filter((u) => u && (u.scheme === 'file' || u.fsPath));
+    if (!list.length) {
+      void vscode.window.showWarningMessage('没有可添加的文件/文件夹。');
+      return;
+    }
+    await this.open();
+    this.post({
+      type: 'dropResolved',
+      items: await resolveDroppedUris(list.map((u) => u.fsPath || u.toString())),
+    });
+  }
+
   resolveWebviewView(
     webviewView: vscode.WebviewView,
     _context: vscode.WebviewViewResolveContext,
@@ -226,6 +244,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
               items: await resolveDroppedUris(picked.map((u) => u.fsPath)),
             });
           }
+          break;
+        }
+        case 'attachActiveFile': {
+          const doc = vscode.window.activeTextEditor?.document;
+          if (!doc || doc.isUntitled || doc.uri.scheme !== 'file') {
+            void vscode.window.showWarningMessage('当前没有可引用的已保存文件。');
+            break;
+          }
+          await this.attachResources([doc.uri]);
           break;
         }
         case 'stop':
@@ -879,6 +906,24 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       background: var(--input-bg); padding: 6px; display: flex; flex-direction: column; gap: 6px;
     }
     .composer.dragover { border-color: var(--focus); box-shadow: 0 0 0 1px var(--focus); }
+    .composer.dragover-vscode { border-color: var(--focus); box-shadow: 0 0 0 1px var(--focus); }
+    .drop-hint {
+      display: none; position: absolute; inset: 0; z-index: 5;
+      align-items: center; justify-content: center; text-align: center;
+      padding: 12px; border-radius: 8px; pointer-events: none;
+      background: color-mix(in srgb, var(--btn-bg) 22%, var(--input-bg));
+      color: var(--fg); font-size: 12px; line-height: 1.45;
+    }
+    .composer.dragover .drop-hint, .composer.dragover-vscode .drop-hint { display: flex; }
+    .composer.dragover-vscode { border-color: var(--focus); box-shadow: 0 0 0 1px var(--focus); }
+    .drop-hint {
+      display: none; position: absolute; inset: 0; z-index: 5;
+      align-items: center; justify-content: center; text-align: center;
+      padding: 12px; border-radius: 8px; pointer-events: none;
+      background: color-mix(in srgb, var(--btn-bg) 22%, var(--input-bg));
+      color: var(--fg); font-size: 12px; line-height: 1.45;
+    }
+    .composer.dragover .drop-hint, .composer.dragover-vscode .drop-hint { display: flex; }
     .attach-row { display: none; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
     .attach-row.show { display: flex; }
     .attach-chip {
@@ -954,6 +999,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   </div>
   <footer>
     <div class="composer" id="composer">
+      <div class="drop-hint" id="dropHint">松开以添加引用<br/>若从左侧资源管理器/标签拖入无效，请按住 <strong>Shift</strong> 再松手<br/>或右键「添加到 Su Chat」</div>
       <div class="attach-row" id="attachRow"></div>
       <div class="slash-menu" id="slashMenu"></div>
       <textarea id="input" placeholder="问 Su… 可拖入图片/文件；输入 / 选 Skill；Enter 发送"></textarea>
@@ -965,13 +1011,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       </div>
       <select id="modelPick" aria-label="选择模型"><option value="auto">Auto</option></select>
       <button type="button" class="secondary" id="btnAttach" title="添加文件/文件夹">📎</button>
+      <button type="button" class="secondary" id="btnActiveFile" title="引用当前编辑器文件">当前文件</button>
       <span class="chip" id="selChip" title="发送时附带当前选区">选区</span>
       <span class="streaming-hint" id="streamHint">生成中 · Esc 停止</span>
       <span style="flex:1"></span>
       <button type="button" class="secondary" id="btnStop" disabled>停止</button>
       <button type="button" class="action" id="btnSend">发送</button>
     </div>
-    <div class="hint">拖入图片/文件（侧栏拖入若被拦截可按住 Shift）· 📎 添加 · / Skills</div>
+    <div class="hint">Windows 可直接拖入；侧栏/标签请按住 Shift 拖，或右键「添加到 Su Chat」· 📎 / 当前文件 · / Skills</div>
   </footer>
   <div id="historyPanel" aria-hidden="true">
     <div class="hp-head">
@@ -1216,10 +1263,23 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       );
     }
 
+    function looksLikeWorkbenchDrag(dt) {
+      const types = dt.types ? Array.from(dt.types).map(String) : [];
+      const joined = types.join('|').toLowerCase();
+      return (
+        joined.indexOf('uri-list') >= 0 ||
+        joined.indexOf('resourceurls') >= 0 ||
+        joined.indexOf('vnd.code') >= 0 ||
+        joined.indexOf('codeeditors') >= 0 ||
+        joined.indexOf('codefiles') >= 0
+      );
+    }
+
     async function handleDrop(e) {
       e.preventDefault();
       e.stopPropagation();
       composer.classList.remove('dragover');
+      composer.classList.remove('dragover-vscode');
       const dt = e.dataTransfer;
       if (!dt) return;
       const uris = collectDropUris(dt);
@@ -1240,9 +1300,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         vscode.postMessage({ type: 'resolveDrop', uris });
         return;
       }
-      if (!added && !files.length) {
-        // Explorer drops sometimes need Shift so the webview receives the event with uri-list.
-        metaFlash('未识别到文件路径：可按住 Shift 再拖，或点 📎 添加');
+      if (!added) {
+        // Workbench blocks webview pointer-events unless Shift is held (upstream design).
+        metaFlash(
+          looksLikeWorkbenchDrag(dt) || !files.length
+            ? '侧栏/标签拖入需按住 Shift 再松手；或右键「添加到 Su Chat」/点「当前文件」'
+            : '未识别到可引用路径，请用 📎 或右键「添加到 Su Chat」',
+        );
       }
     }
 
@@ -1635,12 +1699,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     document.getElementById('mSettings').addEventListener('click', () => vscode.postMessage({ type: 'openSettings' }));
     document.getElementById('mManual').addEventListener('click', () => vscode.postMessage({ type: 'openUserManual' }));
     document.getElementById('btnAttach').addEventListener('click', () => vscode.postMessage({ type: 'pickFiles' }));
+    document.getElementById('btnActiveFile').addEventListener('click', () => vscode.postMessage({ type: 'attachActiveFile' }));
 
     function onDragOver(e) {
       e.preventDefault();
       e.stopPropagation();
       if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
-      composer.classList.add('dragover');
+      const fromWb = e.dataTransfer ? looksLikeWorkbenchDrag(e.dataTransfer) : false;
+      composer.classList.toggle('dragover', !fromWb);
+      composer.classList.toggle('dragover-vscode', fromWb);
+      const hint = document.getElementById('dropHint');
+      if (hint) {
+        hint.innerHTML = fromWb
+          ? '检测到编辑器内拖入：请按住 <strong>Shift</strong> 再松手<br/>或改用右键「添加到 Su Chat」'
+          : '松开以添加引用';
+      }
     }
     const dropTargets = [composer, footer, document.body].filter(Boolean);
     ;['dragenter', 'dragover'].forEach((ev) => {
@@ -1648,7 +1721,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     });
     dropTargets.forEach((el) => {
       el.addEventListener('dragleave', (e) => {
-        if (e.target === el) composer.classList.remove('dragover');
+        if (e.target === el) {
+          composer.classList.remove('dragover');
+          composer.classList.remove('dragover-vscode');
+        }
       });
       el.addEventListener('drop', (e) => { void handleDrop(e); });
     });
