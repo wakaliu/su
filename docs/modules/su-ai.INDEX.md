@@ -31,6 +31,7 @@
 - 拖文件：路径走 `resolveDrop`；无 `File.path` 时读文本为 `fileInline` chip；可用 📎 / Shift 兜底
 - Skill 来源：工作区 `.cursor/skills`、`.su/skills` + 用户 `~/.cursor/skills`、`~/.cursor/skills-cursor`
 - 相关：`chat/attachments.ts`、`chat/skillsCatalog.ts`、`chat/workspaceContext.ts`、`chat/askRunner.ts`（Ask 只读 list/read + 工作区快照）
+- Ask/Agent 工具过程 UI 默认折叠（「处理过程 · N 步」），结论展开
 - 顶栏瘦身 + Ask/Agent pill + Diff 角标（v0.4.1）
 - 快捷键：`Ctrl+L` / `Ctrl+I` / `Esc`
 - 验收：[docs/acceptance/v0.5.md](../acceptance/v0.5.md)（Rules / `@` 检索仍可继续补齐）

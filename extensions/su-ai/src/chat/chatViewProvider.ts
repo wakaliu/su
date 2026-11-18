@@ -787,6 +787,37 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     .msg .body.md blockquote { margin: 0.4em 0; padding-left: 0.8em; border-left: 3px solid var(--border); color: var(--muted); }
     .msg.streaming .body { white-space: pre-wrap; }
     .msg.tool { align-self: stretch; color: var(--muted); font-size: 12px; white-space: pre-wrap; }
+    .msg.tool-fold-wrap {
+      align-self: stretch; padding: 0; border: 1px solid var(--border); border-radius: 8px;
+      background: color-mix(in srgb, var(--input-bg) 80%, transparent); overflow: hidden;
+    }
+    .tool-fold { margin: 0; }
+    .tool-fold > summary {
+      list-style: none; cursor: pointer; user-select: none;
+      padding: 8px 10px; font-size: 12px; color: var(--muted);
+      display: flex; align-items: center; gap: 6px;
+    }
+    .tool-fold > summary::-webkit-details-marker { display: none; }
+    .tool-fold > summary::before {
+      content: '▸'; color: var(--muted); font-size: 10px; transition: transform .12s ease;
+    }
+    .tool-fold[open] > summary::before { transform: rotate(90deg); }
+    .tool-fold > summary:hover { color: var(--fg); background: var(--list-hover); }
+    .tool-fold-body {
+      border-top: 1px solid var(--border); max-height: 280px; overflow: auto;
+      padding: 6px 8px 8px; display: flex; flex-direction: column; gap: 8px;
+    }
+    .tool-step {
+      border: 1px solid var(--border); border-radius: 6px; background: var(--code-bg); overflow: hidden;
+    }
+    .tool-step-label {
+      font-size: 11px; color: var(--muted); padding: 4px 8px; border-bottom: 1px solid var(--border);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .tool-step pre {
+      margin: 0; padding: 6px 8px; font: 11px/1.4 var(--mono); white-space: pre-wrap; word-break: break-word;
+      max-height: 160px; overflow: auto; color: var(--fg);
+    }
     .diff-bar {
       display: none; gap: 6px; flex-wrap: wrap; padding: 6px 10px; border-top: 1px solid var(--border);
       background: color-mix(in srgb, var(--btn-bg) 12%, var(--bg));
@@ -977,6 +1008,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     let streaming = false;
     let currentCard = null;
     let currentBody = null;
+    /** Collapsed Ask/Agent tool process group for the in-flight turn. */
+    let processFold = null;
     let defaultModel = '';
     let messageCount = 0;
     let attachments = [];
@@ -1418,8 +1451,79 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       return { card: el, body: b };
     }
 
+    function ensureProcessFold() {
+      clearEmpty();
+      if (processFold && processFold.wrap && processFold.wrap.isConnected) {
+        return processFold;
+      }
+      messageCount++;
+      const wrap = document.createElement('div');
+      wrap.className = 'msg tool-fold-wrap';
+      const details = document.createElement('details');
+      details.className = 'tool-fold';
+      const summary = document.createElement('summary');
+      summary.textContent = '处理过程（点击展开）';
+      const body = document.createElement('div');
+      body.className = 'tool-fold-body';
+      details.appendChild(summary);
+      details.appendChild(body);
+      wrap.appendChild(details);
+      thread.appendChild(wrap);
+      processFold = { wrap: wrap, details: details, summary: summary, body: body, count: 0 };
+      return processFold;
+    }
+
+    function appendToolStep(text) {
+      const fold = ensureProcessFold();
+      const raw = String(text || '');
+      const firstLine = (raw.split('\\n')[0] || 'TOOL').trim() || 'TOOL';
+      const hasBody = raw.indexOf('\\n') >= 0;
+      const last = fold.body.lastElementChild;
+      // Replace in-progress "name…" step with the completed result.
+      if (last && last.getAttribute('data-pending') === '1' && hasBody) {
+        last.removeAttribute('data-pending');
+        const lab = last.querySelector('.tool-step-label');
+        const pre = last.querySelector('pre');
+        if (lab) {
+          lab.textContent = firstLine.length > 100 ? firstLine.slice(0, 100) + '…' : firstLine;
+          lab.title = firstLine;
+        }
+        if (pre) pre.textContent = raw;
+        fold.summary.textContent = '处理过程 · ' + fold.count + ' 步（点击展开）';
+        thread.scrollTop = thread.scrollHeight;
+        return;
+      }
+      fold.count += 1;
+      fold.summary.textContent = '处理过程 · ' + fold.count + ' 步（点击展开）';
+      const step = document.createElement('div');
+      step.className = 'tool-step';
+      if (!hasBody) step.setAttribute('data-pending', '1');
+      const label = document.createElement('div');
+      label.className = 'tool-step-label';
+      label.textContent = firstLine.length > 100 ? firstLine.slice(0, 100) + '…' : firstLine;
+      label.title = firstLine;
+      const pre = document.createElement('pre');
+      pre.textContent = raw;
+      step.appendChild(label);
+      step.appendChild(pre);
+      fold.body.appendChild(step);
+      thread.scrollTop = thread.scrollHeight;
+    }
+
+    function ensureAssistantCard() {
+      if (currentCard && currentBody && currentCard.isConnected) {
+        return;
+      }
+      const node = addMsg('su', '', 'assistant streaming', false);
+      currentCard = node.card;
+      currentBody = node.body;
+    }
+
     function finishAssistantMarkdown() {
-      if (!currentCard || !currentBody) return;
+      if (!currentCard || !currentBody) {
+        processFold = null;
+        return;
+      }
       currentCard.classList.remove('streaming');
       const raw = currentBody.textContent || '';
       currentBody.classList.add('md');
@@ -1427,6 +1531,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       wireCodeActions(currentBody);
       currentCard = null;
       currentBody = null;
+      processFold = null;
       thread.scrollTop = thread.scrollHeight;
     }
 
@@ -1617,6 +1722,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           thread.innerHTML = '';
           currentCard = null;
           currentBody = null;
+          processFold = null;
           setStreaming(false);
           if (msg.title) sessionTitle.textContent = msg.title;
           const msgs = msg.messages || [];
@@ -1634,19 +1740,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           break;
         case 'assistantStart': {
           setStreaming(true);
-          const node = addMsg('su', '', 'assistant streaming', false);
-          currentCard = node.card;
-          currentBody = node.body;
+          // Defer the answer card so tool steps stay above the final reply.
+          currentCard = null;
+          currentBody = null;
+          processFold = null;
           break;
         }
         case 'assistantDelta':
+          ensureAssistantCard();
           if (currentBody) {
             currentBody.textContent += msg.text;
             thread.scrollTop = thread.scrollHeight;
           }
           break;
         case 'tool':
-          addMsg('tool', msg.text, 'tool', false);
+          appendToolStep(msg.text || '');
           break;
         case 'assistantDone':
         case 'stopped':
@@ -1660,6 +1768,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             currentCard = null;
             currentBody = null;
           }
+          processFold = null;
           addMsg('error', msg.message, 'error', false);
           break;
         case 'skills':

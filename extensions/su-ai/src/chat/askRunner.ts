@@ -89,9 +89,13 @@ export async function runAskWithTools(opts: AskRunOptions): Promise<void> {
           });
           continue;
         }
-        opts.onEvent({ type: 'tool', name, detail: `读取 ${name}…` });
+        opts.onEvent({ type: 'tool', name, detail: `${name}…` });
         const toolResult = await executeAgentTool(name, call.function.arguments || '{}');
-        opts.onEvent({ type: 'tool', name, detail: toolResult.slice(0, 400) });
+        opts.onEvent({
+          type: 'tool',
+          name,
+          detail: `${name}\n${toolResult.slice(0, 1200)}`,
+        });
         messages.push({
           role: 'tool',
           tool_call_id: call.id,

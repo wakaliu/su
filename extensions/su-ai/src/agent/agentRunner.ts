@@ -92,20 +92,17 @@ export async function runAgent(opts: AgentRunOptions): Promise<void> {
         if (opts.signal?.aborted) {
           throw new Error('已停止生成');
         }
-        opts.onEvent({
-          type: 'tool',
-          name: call.function.name,
-          detail: `调用 ${call.function.name}…`,
-        });
+        const toolName = call.function.name;
+        opts.onEvent({ type: 'tool', name: toolName, detail: `${toolName}…` });
         const toolResult = await executeAgentTool(
-          call.function.name,
+          toolName,
           call.function.arguments || '{}',
           opts.diffs,
         );
         opts.onEvent({
           type: 'tool',
-          name: call.function.name,
-          detail: toolResult.slice(0, 400),
+          name: toolName,
+          detail: `${toolName}\n${toolResult.slice(0, 1200)}`,
         });
         messages.push({
           role: 'tool',
