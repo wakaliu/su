@@ -5,7 +5,7 @@ import {
   resolveActiveModel,
   resolveSuRuntimeConfig,
 } from '../config';
-import { friendlyChatError, streamChatCompletion, type ChatMessage } from '../openaiClient';
+import { friendlyChatError, type ChatMessage } from '../openaiClient';
 import { promptAndSetApiKey } from '../secrets';
 import { runAgent } from '../agent/agentRunner';
 import { DiffReviewService } from '../agent/diffReview';
@@ -14,6 +14,7 @@ import {
   resolveDroppedUris,
   type ChatAttachment,
 } from './attachments';
+import { runAskWithTools } from './askRunner';
 import { listInstalledSkills } from './skillsCatalog';
 import { buildWorkspaceContextSnippet } from './workspaceContext';
 import {
@@ -548,39 +549,44 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    const systemParts = [
-      'You are Su, a helpful coding assistant embedded in the su editor. Prefer Markdown. Reply in the user\'s language when possible. ' +
-        'A read-only workspace snapshot (paths, git branches) is injected in the system context — use it to answer questions like current branch. ' +
-        'Do NOT claim you lack permission to see the branch when the snapshot already includes it. ' +
-        'You cannot run shell yourself in Ask mode; if the user needs live commands or file edits, tell them to switch to Agent (Ctrl+I).',
-      ...systemExtras,
-    ];
+    await this.runAskTurn(turn.apiContent, systemExtras, {
+      ...cfg,
+      model: activeModel,
+      timeoutMs: Math.max(
+        cfg.timeoutMs,
+        systemExtras.length > 0 || Array.isArray(turn.apiContent) ? 120_000 : cfg.timeoutMs,
+      ),
+    });
+  }
 
-    const historyMsgs = this.history
-      .slice(0, -1)
-      .filter(
-        (m) => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string',
-      ) as ChatMessage[];
-
+  private async runAskTurn(
+    userContent: import('../openaiClient').ChatMessage['content'],
+    systemExtras: string[],
+    cfg: { baseUrl: string; apiKey: string; model: string; timeoutMs: number },
+  ): Promise<void> {
     let assistant = '';
     try {
-      await streamChatCompletion({
+      await runAskWithTools({
         baseUrl: cfg.baseUrl,
         apiKey: cfg.apiKey,
-        model: activeModel,
-        timeoutMs: Math.max(
-          cfg.timeoutMs,
-          turn.systemExtras.length > 0 || Array.isArray(turn.apiContent) ? 120_000 : cfg.timeoutMs,
-        ),
-        messages: [
-          { role: 'system', content: systemParts.join('\n\n') },
-          ...historyMsgs,
-          { role: 'user', content: turn.apiContent },
-        ],
-        signal: this.abort.signal,
-        onDelta: (delta) => {
-          assistant += delta;
-          this.post({ type: 'assistantDelta', text: delta });
+        model: cfg.model,
+        timeoutMs: cfg.timeoutMs,
+        userContent: userContent ?? '',
+        systemExtras,
+        history: this.history.slice(0, -1),
+        signal: this.abort?.signal,
+        onEvent: (ev) => {
+          if (ev.type === 'tool') {
+            this.post({ type: 'tool', text: ev.detail });
+          } else if (ev.type === 'assistant') {
+            assistant = ev.text;
+            this.post({ type: 'assistantDelta', text: ev.text });
+          } else if (ev.type === 'done') {
+            if (!assistant && ev.summary) {
+              assistant = ev.summary;
+              this.post({ type: 'assistantDelta', text: ev.summary });
+            }
+          }
         },
       });
       if (assistant) {
@@ -599,7 +605,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       } else {
         this.post({
           type: 'error',
-          message: friendlyChatError(message, { hadImages: Array.isArray(turn.apiContent) }),
+          message: friendlyChatError(message, { hadImages: Array.isArray(userContent) }),
         });
       }
     } finally {

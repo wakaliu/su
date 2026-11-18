@@ -102,12 +102,22 @@ export function buildAgentTools(enableTerminal: boolean): AgentToolDef[] {
 }
 
 /**
+ * Ask-mode tools: workspace read-only inspection (no write / terminal).
+ */
+export function buildReadonlyTools(): AgentToolDef[] {
+  return buildAgentTools(false).filter(
+    (t) => t.function.name === 'list_dir' || t.function.name === 'read_file',
+  );
+}
+
+/**
  * Executes one agent tool call. Returns a string result for the model.
+ * Write tools require `diffs`; Ask mode can omit it and only call list/read.
  */
 export async function executeAgentTool(
   name: string,
   argsJson: string,
-  diffs: DiffReviewService,
+  diffs?: DiffReviewService,
 ): Promise<string> {
   let args: Record<string, unknown> = {};
   try {
@@ -123,8 +133,14 @@ export async function executeAgentTool(
       case 'read_file':
         return await readFile(String(args.path ?? ''));
       case 'write_file':
+        if (!diffs) {
+          return 'ERROR: write_file not allowed in Ask mode; switch to Agent';
+        }
         return await writeFile(String(args.path ?? ''), String(args.content ?? ''), diffs);
       case 'replace_in_file':
+        if (!diffs) {
+          return 'ERROR: replace_in_file not allowed in Ask mode; switch to Agent';
+        }
         return await replaceInFile(
           String(args.path ?? ''),
           String(args.old_text ?? ''),

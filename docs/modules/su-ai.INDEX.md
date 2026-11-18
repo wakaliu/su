@@ -30,7 +30,7 @@
 - Ask / **Agent** 本轮均可把图片以 `image_url` 发给模型（`agentRunner` 接受 `userContent` + `systemExtras`）；历史存文本摘要
 - 拖文件：路径走 `resolveDrop`；无 `File.path` 时读文本为 `fileInline` chip；可用 📎 / Shift 兜底
 - Skill 来源：工作区 `.cursor/skills`、`.su/skills` + 用户 `~/.cursor/skills`、`~/.cursor/skills-cursor`
-- 相关：`chat/attachments.ts`、`chat/skillsCatalog.ts`、`chat/workspaceContext.ts`（Ask/Agent 注入 git 分支等轻量快照）
+- 相关：`chat/attachments.ts`、`chat/skillsCatalog.ts`、`chat/workspaceContext.ts`、`chat/askRunner.ts`（Ask 只读 list/read + 工作区快照）
 - 顶栏瘦身 + Ask/Agent pill + Diff 角标（v0.4.1）
 - 快捷键：`Ctrl+L` / `Ctrl+I` / `Esc`
 - 验收：[docs/acceptance/v0.5.md](../acceptance/v0.5.md)（Rules / `@` 检索仍可继续补齐）

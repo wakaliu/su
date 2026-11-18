@@ -6,6 +6,18 @@ import * as vscode from 'vscode';
 
 const execFileAsync = promisify(execFile);
 
+const SKIP_DIR = new Set([
+  'node_modules',
+  '.git',
+  'Library',
+  'Temp',
+  'obj',
+  'bin',
+  '.vs',
+  '.idea',
+  'Logs',
+]);
+
 export interface GitRepoInfo {
   /** Absolute path of the repo working tree. */
   root: string;
@@ -16,55 +28,139 @@ export interface GitRepoInfo {
 }
 
 /**
- * Builds a short workspace snapshot (roots + git branches) for Ask/Agent system context.
- * Nested repos are discovered shallowly so multi-repo Unity layouts still show up.
+ * Builds a workspace snapshot for Ask/Agent system context:
+ * folders, git branches, top-level listing, README/ROADMAP excerpt, open editors.
  */
 export async function buildWorkspaceContextSnippet(): Promise<string> {
   const folders = vscode.workspace.workspaceFolders || [];
   if (!folders.length) {
-    return 'Workspace: (no folder open)';
+    return [
+      'Workspace snapshot (injected by su):',
+      '- No folder open. Ask the user to File → Open Folder so Su can associate the project.',
+    ].join('\n');
   }
 
-  const lines: string[] = ['Workspace snapshot (read-only, injected by su):'];
+  const lines: string[] = [
+    'Workspace snapshot (read-only, injected by su).',
+    'You ARE associated with this project — use the facts below. Do NOT claim you lack access to the project/files/repo when answering from this snapshot or after using list_dir/read_file.',
+  ];
+
+  const active = vscode.window.activeTextEditor?.document;
+  if (active && !active.isUntitled) {
+    lines.push(`- Active file: ${vscode.workspace.asRelativePath(active.uri, false)}`);
+  }
+  const openDocs = vscode.workspace.textDocuments
+    .filter((d) => !d.isUntitled && d.uri.scheme === 'file')
+    .slice(0, 12)
+    .map((d) => vscode.workspace.asRelativePath(d.uri, false));
+  if (openDocs.length) {
+    lines.push(`- Open editors: ${openDocs.join(', ')}`);
+  }
+
   for (const folder of folders) {
     lines.push(`- Workspace folder: ${folder.name} → ${folder.uri.fsPath}`);
+
+    const top = listTopLevel(folder.uri.fsPath);
+    if (top.length) {
+      lines.push(`  - Top-level: ${top.join(', ')}`);
+    }
+
+    const readme = readSmallProjectDoc(folder.uri.fsPath);
+    if (readme) {
+      lines.push(`  - ${readme.name} (excerpt):\n\`\`\`\n${readme.text}\n\`\`\``);
+    }
+
     const repos = await discoverGitRepos(folder.uri.fsPath, folder.name);
     if (!repos.length) {
       lines.push('  - Git: (not a git repo / git unavailable)');
-      continue;
-    }
-    for (const repo of repos) {
-      const dirty = repo.dirty === undefined ? '' : repo.dirty ? ' (dirty)' : ' (clean)';
-      lines.push(`  - Git ${repo.label}: branch \`${repo.branch}\`${dirty}`);
+    } else {
+      for (const repo of repos) {
+        const dirty = repo.dirty === undefined ? '' : repo.dirty ? ' (dirty)' : ' (clean)';
+        lines.push(`  - Git ${repo.label}: branch \`${repo.branch}\`${dirty}`);
+      }
     }
   }
+
   lines.push(
-    'Use this snapshot to answer questions about the current branch/path. ' +
-      'If you need a fresh shell check, switch to Agent mode (run_terminal shows a permission dialog).',
+    'For deeper inspection in Ask mode, call list_dir / read_file. ' +
+      'For edits or terminal, tell the user to switch to Agent (Ctrl+I).',
   );
   return lines.join('\n');
+}
+
+function listTopLevel(folderFsPath: string): string[] {
+  try {
+    const entries = fs.readdirSync(folderFsPath, { withFileTypes: true });
+    return entries
+      .filter((e) => !e.name.startsWith('.') && !SKIP_DIR.has(e.name))
+      .slice(0, 40)
+      .map((e) => (e.isDirectory() ? `${e.name}/` : e.name));
+  } catch {
+    return [];
+  }
+}
+
+function readSmallProjectDoc(folderFsPath: string): { name: string; text: string } | undefined {
+  const candidates = [
+    'README.md',
+    'README.MD',
+    'readme.md',
+    'ROADMAP.md',
+    'package.json',
+    'ProjectSettings/ProjectVersion.txt',
+  ];
+  for (const name of candidates) {
+    const full = path.join(folderFsPath, name);
+    try {
+      if (!fs.existsSync(full) || !fs.statSync(full).isFile()) {
+        continue;
+      }
+      const st = fs.statSync(full);
+      if (st.size > 80_000) {
+        continue;
+      }
+      let text = fs.readFileSync(full, 'utf8');
+      if (name === 'package.json') {
+        try {
+          const pkg = JSON.parse(text) as { name?: string; description?: string; version?: string };
+          text = JSON.stringify(
+            { name: pkg.name, version: pkg.version, description: pkg.description },
+            null,
+            2,
+          );
+        } catch {
+          // keep raw
+        }
+      }
+      if (text.length > 2500) {
+        text = text.slice(0, 2500) + '\n…(truncated)';
+      }
+      return { name, text };
+    } catch {
+      // try next
+    }
+  }
+  return undefined;
 }
 
 async function discoverGitRepos(folderFsPath: string, folderName: string): Promise<GitRepoInfo[]> {
   const candidates = new Set<string>();
   candidates.add(folderFsPath);
 
-  // Shallow nested repos (e.g. Unity Assets/Script as submodule/separate clone).
   try {
     const entries = fs.readdirSync(folderFsPath, { withFileTypes: true });
     for (const ent of entries) {
-      if (!ent.isDirectory() || ent.name.startsWith('.')) {
+      if (!ent.isDirectory() || ent.name.startsWith('.') || SKIP_DIR.has(ent.name)) {
         continue;
       }
       const child = path.join(folderFsPath, ent.name);
       if (isGitRoot(child)) {
         candidates.add(child);
       }
-      // One more level for Assets/Script style layouts.
       try {
         const sub = fs.readdirSync(child, { withFileTypes: true });
         for (const s of sub.slice(0, 40)) {
-          if (!s.isDirectory() || s.name.startsWith('.')) {
+          if (!s.isDirectory() || s.name.startsWith('.') || SKIP_DIR.has(s.name)) {
             continue;
           }
           const nested = path.join(child, s.name);
@@ -73,7 +169,7 @@ async function discoverGitRepos(folderFsPath: string, folderName: string): Promi
           }
         }
       } catch {
-        // ignore unreadable dirs
+        // ignore
       }
     }
   } catch {
@@ -92,8 +188,7 @@ async function discoverGitRepos(folderFsPath: string, folderName: string): Promi
 
 function isGitRoot(dir: string): boolean {
   try {
-    const gitPath = path.join(dir, '.git');
-    return fs.existsSync(gitPath);
+    return fs.existsSync(path.join(dir, '.git'));
   } catch {
     return false;
   }
