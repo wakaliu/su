@@ -4,7 +4,8 @@
 
 - Windows 10/11 x64
 - Git
-- Node.js **24.x**（必须与上游 `vendor/vscode/.nvmrc` 主版本一致；1.136.1 要求 Node 24，用 22 会在 `preinstall` 直接失败）
+- Node.js **24.18.0**（与上游 `vendor/vscode/.nvmrc` 一致；CI 亦钉此版本。勿用 Node 20/22：preinstall 会失败；浮动 `24` 可能拉到 24.22.x，Windows 上 `tree-sitter` node-gyp 易挂）
+- 原生模块：`build-win.ps1` 会设 `CXXFLAGS=/std:c++20`（Node 24 的 V8 头文件要求 C++20；`tree-sitter` 默认 C++17 会编不过）
 - Python 3.10+
 - Visual Studio 2019/2022 Build Tools（含「使用 C++ 的桌面开发」）
   - **必须**安装对应工具集的 **Spectre 缓解库**（MSVC Spectre-mitigated libs），否则 `@vscode/spdlog` 等原生模块会报 `MSB8040`

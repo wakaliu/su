@@ -4,7 +4,7 @@
 |----|-----|
 | 仓库 | https://github.com/microsoft/vscode |
 | Tag | **1.136.1** |
-| Node（构建） | **24.x**（与上游 `.nvmrc` 一致，例如 24.18.0） |
+| Node（构建） | **24.18.0**（与上游 `.nvmrc` / CI `setup-node` 钉死一致） |
 | 许可证 | MIT（Code-OSS） |
 | 拉取目录 | `vendor/vscode/` |
 | 拉取方式 | `scripts/bootstrap.ps1`（shallow clone + checkout tag） |

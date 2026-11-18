@@ -114,6 +114,12 @@ if ($env:PythonLocation) {
   }
 }
 
+# Node 24 V8 headers require C++20; tree-sitter binding.gyp defaults to C++17.
+if (-not $env:CXXFLAGS) {
+  $env:CXXFLAGS = '-std=c++20'
+  Write-Host "==> CXXFLAGS=$env:CXXFLAGS (tree-sitter / native addons for Node 24)"
+}
+
 Ensure-DarwinIcns
 
 Push-Location $Vendor

@@ -25,7 +25,8 @@ Runner：`macos-15` → arm64；`macos-15-intel` → x64（`macos-14` / `macos-1
 ## 本机 Mac（可选）
 
 ```bash
-# 需 Node 24、Python 3.11+、PowerShell 7+
+# 需 Node 24.18.0（与 .nvmrc 一致）、Python 3.11+、PowerShell 7+
+# build-mac.ps1 会设 CXXFLAGS=-std=c++20（Node 24 编 tree-sitter 需要）
 pwsh ./scripts/bootstrap.ps1
 
 export SU_DARWIN_ARCH=arm64   # 或 x64

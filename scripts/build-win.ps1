@@ -126,6 +126,17 @@ if ($env:PythonLocation) {
   Write-Host "==> npm_config_python=$env:npm_config_python"
 }
 
+# Node 24 V8 headers require C++20; tree-sitter's binding.gyp still defaults to
+# C++17 and fails during postinstall (node-gyp). MSVC wants /std:c++20.
+if (-not $env:CXXFLAGS) {
+  $env:CXXFLAGS = '/std:c++20'
+  Write-Host "==> CXXFLAGS=$env:CXXFLAGS (tree-sitter / native addons for Node 24)"
+}
+if (-not $env:CFLAGS) {
+  # Keep C compiles quiet; C++ flag above is what matters for V8 headers.
+  $env:CFLAGS = ''
+}
+
 $spectreLibCandidates = @(
   "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2019\Community\VC\Tools\MSVC\14.29.30133\lib\spectre\x64",
   "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2019\BuildTools\VC\Tools\MSVC\14.29.30133\lib\spectre\x64"

@@ -25,9 +25,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Pin exact Node to vendor/vscode/.nvmrc (24.18.0). Floating "24" can
+      # pull 24.22.x where tree-sitter node-gyp has been flaky on windows-2022.
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.18.0'
 
       - uses: actions/setup-python@v5
         with:
