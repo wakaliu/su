@@ -2,6 +2,9 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { DiffReviewService } from './diffReview';
 
+/** Session allowlist for confirmed read-only git commands (Cursor-like less friction). */
+let allowReadonlyGitSession = false;
+
 export interface AgentToolDef {
   type: 'function';
   function: {
@@ -217,6 +220,11 @@ async function replaceInFile(
   return `OK replaced in ${vscode.workspace.asRelativePath(uri)}. Pending Keep/Reject.`;
 }
 
+function isReadonlyGitCommand(cmd: string): boolean {
+  // Allow common inspection commands only (status/branch/log/diff/show/rev-parse/remote).
+  return /^\s*git(\s+-C\s+\S+)?\s+(status|branch|log|diff|show|rev-parse|remote)\b/i.test(cmd);
+}
+
 async function runTerminal(command: string): Promise<string> {
   const cmd = command.trim();
   if (!cmd) {
@@ -227,14 +235,21 @@ async function runTerminal(command: string): Promise<string> {
     return 'ERROR: terminal tool disabled (su.agent.enableTerminal=false)';
   }
 
-  const pick = await vscode.window.showWarningMessage(
-    `Agent 请求执行终端命令：\n${cmd}`,
-    { modal: true },
-    '运行',
-    '跳过',
-  );
-  if (pick !== '运行') {
-    return 'SKIPPED: user declined terminal command';
+  const readonlyGit = isReadonlyGitCommand(cmd);
+  if (!(readonlyGit && allowReadonlyGitSession)) {
+    const buttons = readonlyGit
+      ? (['运行', '本会话允许同类 git 只读', '跳过'] as const)
+      : (['运行', '跳过'] as const);
+    const pick = await vscode.window.showWarningMessage(
+      `Su Agent 请求执行终端命令（工作区根目录）：\n\n${cmd}`,
+      { modal: true, detail: '可跳过。写文件仍走 Keep/Reject；危险命令请勿轻易允许。' },
+      ...buttons,
+    );
+    if (pick === '本会话允许同类 git 只读') {
+      allowReadonlyGitSession = true;
+    } else if (pick !== '运行') {
+      return 'SKIPPED: user declined terminal command';
+    }
   }
 
   const root = workspaceRoot();

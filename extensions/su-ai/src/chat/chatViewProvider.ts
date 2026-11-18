@@ -15,6 +15,7 @@ import {
   type ChatAttachment,
 } from './attachments';
 import { listInstalledSkills } from './skillsCatalog';
+import { buildWorkspaceContextSnippet } from './workspaceContext';
 import {
   createEmptySession,
   LEGACY_HISTORY_KEY,
@@ -522,6 +523,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
 
     const turn = await buildUserTurn(prompt, attachments);
+    const workspaceCtx = await buildWorkspaceContextSnippet();
+    const systemExtras = [workspaceCtx, ...turn.systemExtras];
     const next = [...this.history, { role: 'user' as const, content: turn.historyText }];
     this.history = next;
     await this.saveHistory();
@@ -534,20 +537,23 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.abort = new AbortController();
 
     if (mode === 'agent') {
-      await this.runAgentTurn(turn.apiContent, turn.systemExtras, {
+      await this.runAgentTurn(turn.apiContent, systemExtras, {
         ...cfg,
         model: activeModel,
         timeoutMs: Math.max(
           cfg.timeoutMs,
-          turn.systemExtras.length > 0 || Array.isArray(turn.apiContent) ? 120_000 : cfg.timeoutMs,
+          systemExtras.length > 0 || Array.isArray(turn.apiContent) ? 120_000 : cfg.timeoutMs,
         ),
       });
       return;
     }
 
     const systemParts = [
-      'You are Su, a helpful coding assistant embedded in the su editor. Prefer Markdown. Reply in the user\'s language when possible.',
-      ...turn.systemExtras,
+      'You are Su, a helpful coding assistant embedded in the su editor. Prefer Markdown. Reply in the user\'s language when possible. ' +
+        'A read-only workspace snapshot (paths, git branches) is injected in the system context — use it to answer questions like current branch. ' +
+        'Do NOT claim you lack permission to see the branch when the snapshot already includes it. ' +
+        'You cannot run shell yourself in Ask mode; if the user needs live commands or file edits, tell them to switch to Agent (Ctrl+I).',
+      ...systemExtras,
     ];
 
     const historyMsgs = this.history

@@ -18,7 +18,7 @@ description: Agent 多文件编辑与 Inline Diff 审阅（v0.4+）。
 ## 约定
 
 - 默认工具：工作区内 `list_dir` / `read_file` / `write_file` / `replace_in_file`
-- `run_terminal`：需 `su.agent.enableTerminal`，且每次 UI 确认
+- `run_terminal`：需 `su.agent.enableTerminal`，默认每次 UI 确认；只读 git 可「本会话允许同类」
 - 写入进入 `DiffReviewService`；`Su: 审阅 Agent 改动` → Keep / Reject
 - Chat：Diff 角标、待审条（Keep All / Reject All / 审阅）；状态栏 `待审 N`
 - Chat 面板 **Agent** 模式触发；中转与 Chat 共用
