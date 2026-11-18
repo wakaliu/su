@@ -1,3 +1,4 @@
+import * as vscode from 'vscode';
 import {
   completeChatWithTools,
   type ChatContentPart,
@@ -27,7 +28,9 @@ export type AskEvent =
  */
 export async function runAskWithTools(opts: AskRunOptions): Promise<void> {
   const tools = buildReadonlyTools();
-  const maxSteps = 8;
+  const cfg = vscode.workspace.getConfiguration('su');
+  // Cap Ask tool loops so a broad "介绍项目" cannot burn unbounded list/read rounds.
+  const maxSteps = Math.min(30, Math.max(1, cfg.get<number>('ask.maxSteps', 16) || 16));
 
   const systemParts = [
     'You are Su, a helpful coding assistant embedded in the su editor. Prefer Markdown. Reply in the user\'s language. ' +
@@ -113,6 +116,6 @@ export async function runAskWithTools(opts: AskRunOptions): Promise<void> {
 
   opts.onEvent({
     type: 'done',
-    summary: `已达 Ask 只读工具步数上限（${maxSteps}）。可改用 Agent 继续深入。`,
+    summary: `已达 Ask 只读工具步数上限（${maxSteps}，设置 su.ask.maxSteps）。可改用 Agent 继续深入。`,
   });
 }

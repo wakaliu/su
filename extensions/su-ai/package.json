@@ -304,6 +304,13 @@
           "maximum": 512,
           "description": "单次行内补全的 max_tokens。"
         },
+        "su.ask.maxSteps": {
+          "type": "number",
+          "default": 16,
+          "minimum": 1,
+          "maximum": 30,
+          "description": "Ask 单轮最大只读工具（list_dir / read_file）步数。"
+        },
         "su.agent.maxSteps": {
           "type": "number",
           "default": 12,
