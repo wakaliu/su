@@ -12,7 +12,11 @@ import { DiffReviewService } from '../agent/diffReview';
 import {
   resetTerminalSessionPermissions,
   setTerminalPermissionAsker,
+  setUserFeedbackAsker,
   type TerminalPermissionDecision,
+  type UserFeedbackKind,
+  type UserFeedbackRequest,
+  type UserFeedbackResult,
 } from '../agent/tools';
 import {
   buildUserTurn,
@@ -78,6 +82,13 @@ type WebviewToExt =
       type: 'terminalPermissionResult';
       id: string;
       decision: TerminalPermissionDecision;
+    }
+  | {
+      type: 'userFeedbackResult';
+      id: string;
+      status: 'answered' | 'dismissed';
+      selected: string[];
+      freeText: string;
     };
 
 type ExtToWebview =
@@ -128,6 +139,20 @@ type ExtToWebview =
       id: string;
       decision: TerminalPermissionDecision;
     }
+  | {
+      type: 'userFeedback';
+      id: string;
+      message: string;
+      options: string[];
+      kind: UserFeedbackKind;
+    }
+  | {
+      type: 'userFeedbackSettled';
+      id: string;
+      status: 'answered' | 'dismissed';
+      selected: string[];
+      freeText: string;
+    }
   | { type: 'error'; message: string }
   | { type: 'stopped' }
   | {
@@ -171,13 +196,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   onPendingDiffsChanged?: (count: number) => void;
   /** In-flight Chat permission cards waiting for Allow once / Always / Deny. */
   private terminalPermWaiters = new Map<string, (d: TerminalPermissionDecision) => void>();
+  /** In-flight ask_user feedback cards. */
+  private userFeedbackWaiters = new Map<string, (r: UserFeedbackResult) => void>();
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.store = this.loadStore();
     this.diffs = new DiffReviewService();
     setTerminalPermissionAsker((req) => this.askTerminalPermissionInChat(req.command, req.readonlyGit));
+    setUserFeedbackAsker((req) => this.askUserFeedbackInChat(req));
     this.context.subscriptions.push({
-      dispose: () => setTerminalPermissionAsker(undefined),
+      dispose: () => {
+        setTerminalPermissionAsker(undefined);
+        setUserFeedbackAsker(undefined);
+      },
     });
     this.context.subscriptions.push(
       vscode.workspace.onDidChangeConfiguration((e) => {
@@ -224,6 +255,58 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  private askUserFeedbackInChat(req: UserFeedbackRequest): Promise<UserFeedbackResult> {
+    const id = `fb-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    return new Promise((resolve) => {
+      this.userFeedbackWaiters.set(id, resolve);
+      this.post({
+        type: 'userFeedback',
+        id,
+        message: req.message,
+        options: req.options,
+        kind: req.kind,
+      });
+    });
+  }
+
+  private resolveUserFeedback(id: string, result: UserFeedbackResult): void {
+    const waiter = this.userFeedbackWaiters.get(id);
+    if (!waiter) {
+      return;
+    }
+    this.userFeedbackWaiters.delete(id);
+    waiter(result);
+    this.post({
+      type: 'userFeedbackSettled',
+      id,
+      status: result.status,
+      selected: result.selected,
+      freeText: result.freeText,
+    });
+  }
+
+  private rejectPendingUserFeedback(): void {
+    const ids = [...this.userFeedbackWaiters.keys()];
+    for (const id of ids) {
+      const waiter = this.userFeedbackWaiters.get(id);
+      this.userFeedbackWaiters.delete(id);
+      const dismissed: UserFeedbackResult = { status: 'dismissed', selected: [], freeText: '' };
+      waiter?.(dismissed);
+      this.post({
+        type: 'userFeedbackSettled',
+        id,
+        status: 'dismissed',
+        selected: [],
+        freeText: '',
+      });
+    }
+  }
+
+  private rejectPendingAgentPrompts(): void {
+    this.rejectPendingTerminalPermissions();
+    this.rejectPendingUserFeedback();
+  }
+
   /**
    * Reveals Su Chat in the right auxiliary bar (Cursor-like) and focuses input.
    */
@@ -246,7 +329,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   /** Stops in-flight generation (Esc / stop button). */
   stopGeneration(): void {
-    this.rejectPendingTerminalPermissions();
+    this.rejectPendingAgentPrompts();
     this.abort?.abort();
   }
 
@@ -505,6 +588,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       case 'terminalPermissionResult':
         this.resolveTerminalPermission(raw.id, raw.decision);
         break;
+      case 'userFeedbackResult':
+        this.resolveUserFeedback(raw.id, {
+          status: raw.status === 'answered' ? 'answered' : 'dismissed',
+          selected: Array.isArray(raw.selected) ? raw.selected.map(String) : [],
+          freeText: String(raw.freeText ?? ''),
+        });
+        break;
       default:
         break;
     }
@@ -619,7 +709,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   private async newSession(): Promise<void> {
-    this.rejectPendingTerminalPermissions();
+    this.rejectPendingAgentPrompts();
     this.abort?.abort();
     this.abort = undefined;
     resetTerminalSessionPermissions();
@@ -645,7 +735,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     if (!this.store.sessions.some((s) => s.id === id)) {
       return;
     }
-    this.rejectPendingTerminalPermissions();
+    this.rejectPendingAgentPrompts();
     this.abort?.abort();
     this.abort = undefined;
     resetTerminalSessionPermissions();
@@ -660,7 +750,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   private async deleteSession(id: string): Promise<void> {
     const wasActive = this.store.activeId === id;
-    this.rejectPendingTerminalPermissions();
+    this.rejectPendingAgentPrompts();
     this.store.sessions = this.store.sessions.filter((s) => s.id !== id);
     if (!this.store.sessions.length) {
       const created = createEmptySession(this.getMode());
@@ -938,7 +1028,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         });
       }
     } finally {
-      this.rejectPendingTerminalPermissions();
+      this.rejectPendingAgentPrompts();
       this.abort = undefined;
       await this.setStreaming(false);
       this.emitDiffsChanged();
@@ -1150,6 +1240,41 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
     .perm-card.done { opacity: 0.85; }
     .perm-card.done .perm-actions { display: none; }
+    .fb-card {
+      align-self: stretch; border: 1px solid color-mix(in srgb, var(--link) 35%, var(--border));
+      border-radius: 10px; padding: 12px 12px 10px;
+      background: color-mix(in srgb, var(--input-bg) 88%, var(--bg));
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .fb-card .fb-eyebrow { font-size: 11px; color: var(--muted); letter-spacing: 0.02em; }
+    .fb-card .fb-message { font-size: 13px; color: var(--fg); white-space: pre-wrap; line-height: 1.45; }
+    .fb-card .fb-options { display: flex; flex-direction: column; gap: 4px; }
+    .fb-card .fb-opt {
+      display: flex; align-items: flex-start; gap: 8px; padding: 6px 8px; border-radius: 6px;
+      border: 1px solid transparent; cursor: pointer; font-size: 12px; color: var(--fg);
+    }
+    .fb-card .fb-opt:hover { background: var(--list-hover); }
+    .fb-card .fb-opt.selected {
+      border-color: color-mix(in srgb, var(--link) 50%, var(--border));
+      background: color-mix(in srgb, var(--btn-bg) 16%, transparent);
+    }
+    .fb-card .fb-opt input { margin-top: 2px; }
+    .fb-card .fb-free {
+      width: 100%; min-height: 64px; resize: vertical; box-sizing: border-box;
+      padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--code-bg); color: var(--fg); font: 12px/1.45 var(--font);
+    }
+    .fb-card .fb-hint { font-size: 11px; color: var(--muted); }
+    .fb-card .fb-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+    .fb-card .fb-actions button {
+      font-size: 12px; padding: 5px 12px; border-radius: 6px; border: 1px solid var(--border);
+      background: var(--btn2-bg); color: var(--btn2-fg); cursor: pointer;
+    }
+    .fb-card .fb-actions button.primary {
+      background: var(--btn-bg); color: var(--btn-fg); border-color: transparent;
+    }
+    .fb-card.done { opacity: 0.88; }
+    .fb-card.done .fb-actions, .fb-card.done .fb-options, .fb-card.done .fb-free { display: none; }
     .diff-bar {
       display: none; gap: 6px; flex-wrap: wrap; padding: 6px 10px; border-top: 1px solid var(--border);
       background: color-mix(in srgb, var(--btn-bg) 12%, var(--bg));
@@ -1943,6 +2068,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       write_file: '写入文件',
       replace_in_file: '修改文件',
       run_terminal: '运行终端',
+      ask_user: '等待你的选择',
     };
 
     function toolPretty(name) {
@@ -2032,6 +2158,105 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         (!hasBody ? '正在' : '刚完成') + pretty + ' · 共 ' + fold.count + ' 步',
         !hasBody || streaming,
       );
+      thread.scrollTop = thread.scrollHeight;
+    }
+
+    function showUserFeedback(msg) {
+      clearEmpty();
+      messageCount++;
+      const fold = processFold && processFold.wrap && processFold.wrap.isConnected ? processFold : null;
+      const card = document.createElement('div');
+      card.className = fold ? 'fb-card' : 'msg fb-card';
+      card.setAttribute('data-fb-id', msg.id);
+      const eyebrow = document.createElement('div');
+      eyebrow.className = 'fb-eyebrow';
+      eyebrow.textContent = msg.kind === 'suggestion' ? '建议确认' : '需要你的选择';
+      const message = document.createElement('div');
+      message.className = 'fb-message';
+      message.textContent = msg.message || '';
+      const optionsWrap = document.createElement('div');
+      optionsWrap.className = 'fb-options';
+      const checks = [];
+      (msg.options || []).forEach((label, idx) => {
+        const row = document.createElement('label');
+        row.className = 'fb-opt';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = label;
+        cb.addEventListener('change', () => {
+          row.classList.toggle('selected', cb.checked);
+        });
+        const span = document.createElement('span');
+        span.textContent = label;
+        row.appendChild(cb);
+        row.appendChild(span);
+        optionsWrap.appendChild(row);
+        checks.push(cb);
+        if (idx === 0 && (msg.options || []).length === 1) {
+          cb.checked = true;
+          row.classList.add('selected');
+        }
+      });
+      const free = document.createElement('textarea');
+      free.className = 'fb-free';
+      free.placeholder = '补充说明（可选）';
+      const hint = document.createElement('div');
+      hint.className = 'fb-hint';
+      hint.textContent = msg.kind === 'suggestion'
+        ? '发送后按你的选择继续；关闭则结束任务，不执行建议。'
+        : '发送后按你的选择继续；关闭则继续当前方案，不做额外扩展。';
+      const actions = document.createElement('div');
+      actions.className = 'fb-actions';
+      function settleLocal(status, selected, freeText, summary) {
+        if (card.classList.contains('done')) return;
+        card.classList.add('done');
+        hint.textContent = summary;
+        if (fold) refreshProcessSummary(fold, summary, true);
+      }
+      function finish(status) {
+        if (card.classList.contains('done')) return;
+        const selected = checks.filter((c) => c.checked).map((c) => c.value);
+        const freeText = (free.value || '').trim();
+        if (status === 'answered' && !selected.length && !freeText) {
+          hint.textContent = '请至少勾选一项或填写说明，或点关闭。';
+          return;
+        }
+        const summary = status === 'dismissed'
+          ? (msg.kind === 'suggestion' ? '已关闭建议 · 结束任务' : '已关闭 · 继续当前方案')
+          : ('已选择：' + (selected.length ? selected.join('、') : '（仅文字）'));
+        settleLocal(status, selected, freeText, summary);
+        vscode.postMessage({
+          type: 'userFeedbackResult',
+          id: msg.id,
+          status: status,
+          selected: selected,
+          freeText: freeText,
+        });
+      }
+      const bSend = document.createElement('button');
+      bSend.type = 'button';
+      bSend.className = 'primary';
+      bSend.textContent = '发送';
+      bSend.addEventListener('click', () => finish('answered'));
+      const bClose = document.createElement('button');
+      bClose.type = 'button';
+      bClose.textContent = '关闭';
+      bClose.addEventListener('click', () => finish('dismissed'));
+      actions.appendChild(bSend);
+      actions.appendChild(bClose);
+      card.appendChild(eyebrow);
+      card.appendChild(message);
+      if ((msg.options || []).length) card.appendChild(optionsWrap);
+      card.appendChild(free);
+      card.appendChild(hint);
+      card.appendChild(actions);
+      if (fold) {
+        fold.details.open = true;
+        fold.body.appendChild(card);
+        refreshProcessSummary(fold, '等待你的选择…', true);
+      } else {
+        thread.appendChild(card);
+      }
       thread.scrollTop = thread.scrollHeight;
     }
 
@@ -2421,6 +2646,25 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             const h = el.querySelector('.perm-hint');
             const labels = { allow_session: '本会话总是允许', allow_once: '允许一次', deny: '拒绝' };
             if (h) h.textContent = '已选择：' + (labels[msg.decision] || msg.decision);
+          }
+          break;
+        }
+        case 'userFeedback':
+          showUserFeedback(msg);
+          break;
+        case 'userFeedbackSettled': {
+          const el = thread.querySelector('[data-fb-id="' + msg.id + '"]');
+          if (el && !el.classList.contains('done')) {
+            el.classList.add('done');
+            const h = el.querySelector('.fb-hint');
+            if (h) {
+              if (msg.status === 'dismissed') {
+                h.textContent = '已关闭';
+              } else {
+                const sel = (msg.selected || []).join('、');
+                h.textContent = '已选择：' + (sel || (msg.freeText || '（仅文字）'));
+              }
+            }
           }
           break;
         }

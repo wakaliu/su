@@ -33,6 +33,34 @@ export function resetTerminalSessionPermissions(): void {
   allowReadonlyGitSession = false;
 }
 
+/** Marker: user dismissed a suggestion card — AgentRunner should end the turn. */
+export const USER_FEEDBACK_STOP = '[[SU_USER_FEEDBACK_STOP]]';
+
+export type UserFeedbackKind = 'choice' | 'suggestion';
+
+export type UserFeedbackRequest = {
+  message: string;
+  options: string[];
+  kind: UserFeedbackKind;
+};
+
+export type UserFeedbackResult = {
+  status: 'answered' | 'dismissed';
+  selected: string[];
+  freeText: string;
+};
+
+type UserFeedbackAsker = (req: UserFeedbackRequest) => Promise<UserFeedbackResult>;
+
+let userFeedbackAsker: UserFeedbackAsker | undefined;
+
+/**
+ * Registers the Chat/Agent Window handler for interactive feedback cards.
+ */
+export function setUserFeedbackAsker(asker: UserFeedbackAsker | undefined): void {
+  userFeedbackAsker = asker;
+}
+
 export interface AgentToolDef {
   type: 'function';
   function: {
@@ -126,6 +154,38 @@ export function buildAgentTools(enableTerminal: boolean): AgentToolDef[] {
     });
   }
 
+  tools.push({
+    type: 'function',
+    function: {
+      name: 'ask_user',
+      description:
+        'Pause and show an in-chat feedback card (options + optional free text). Use SPARINGLY — only for real branching choices or optional next-step suggestions (e.g. commit). ' +
+        'kind=choice: dismiss means continue current plan without expansions. kind=suggestion: dismiss means stop without doing the suggested work. ' +
+        'Do NOT use for routine edits, terminal (use run_terminal), or decisions you can make yourself.',
+      parameters: {
+        type: 'object',
+        properties: {
+          message: {
+            type: 'string',
+            description: 'Short question / context shown on the card.',
+          },
+          options: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '2–5 short predefined options (checkboxes). Optional but preferred.',
+          },
+          kind: {
+            type: 'string',
+            enum: ['choice', 'suggestion'],
+            description:
+              'choice = must branch to proceed correctly; suggestion = optional follow-up (commit/push/etc.).',
+          },
+        },
+        required: ['message', 'kind'],
+      },
+    },
+  });
+
   return tools;
 }
 
@@ -177,6 +237,8 @@ export async function executeAgentTool(
         );
       case 'run_terminal':
         return await runTerminal(String(args.command ?? ''));
+      case 'ask_user':
+        return await askUser(args);
       default:
         return `ERROR: unknown tool ${name}`;
     }
@@ -267,6 +329,63 @@ async function replaceInFile(
 function isReadonlyGitCommand(cmd: string): boolean {
   // Allow common inspection commands only (status/branch/log/diff/show/rev-parse/remote).
   return /^\s*git(\s+-C\s+\S+)?\s+(status|branch|log|diff|show|rev-parse|remote)\b/i.test(cmd);
+}
+
+async function askUser(args: Record<string, unknown>): Promise<string> {
+  const message = String(args.message ?? '').trim();
+  if (!message) {
+    return 'ERROR: ask_user requires a non-empty message';
+  }
+  const kindRaw = String(args.kind ?? 'choice').toLowerCase();
+  const kind: UserFeedbackKind = kindRaw === 'suggestion' ? 'suggestion' : 'choice';
+  let options: string[] = [];
+  if (Array.isArray(args.options)) {
+    options = args.options
+      .map((o) => String(o ?? '').trim())
+      .filter(Boolean)
+      .slice(0, 6);
+  }
+
+  let result: UserFeedbackResult;
+  if (userFeedbackAsker) {
+    result = await userFeedbackAsker({ message, options, kind });
+  } else {
+    // Rare fallback when Chat UI is unavailable.
+    const pick = await vscode.window.showInformationMessage(
+      message,
+      { modal: true, detail: kind === 'suggestion' ? '关闭/取消 = 结束建议，不执行。' : '关闭/取消 = 继续当前方案，不做额外扩展。' },
+      ...(options.length ? options.slice(0, 3) : (['继续', '结束'] as const)),
+    );
+    if (!pick) {
+      result = { status: 'dismissed', selected: [], freeText: '' };
+    } else {
+      result = { status: 'answered', selected: [pick], freeText: '' };
+    }
+  }
+
+  if (result.status === 'dismissed') {
+    if (kind === 'suggestion') {
+      return (
+        `${USER_FEEDBACK_STOP}\n` +
+        'status=dismissed kind=suggestion\n' +
+        'User closed the suggestion card. End the turn NOW. Do not perform the suggested actions.'
+      );
+    }
+    return (
+      'status=dismissed kind=choice\n' +
+      'User closed without choosing. Continue the CURRENT plan only — no optional expansions, ' +
+      'no alternate branches, and do not decide among the offered options for the user.'
+    );
+  }
+
+  const selected = result.selected.length ? result.selected.join(' | ') : '(none)';
+  const free = result.freeText.trim() || '(none)';
+  return (
+    `status=answered kind=${kind}\n` +
+    `selected: ${selected}\n` +
+    `free_text: ${free}\n` +
+    'Follow the user selection / free text. Do not do unselected options.'
+  );
 }
 
 async function askTerminalPermission(cmd: string, readonlyGit: boolean): Promise<TerminalPermissionDecision> {

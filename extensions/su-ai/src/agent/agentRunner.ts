@@ -6,7 +6,7 @@ import {
 } from '../openaiClient';
 import { SU_REPLY_FORMAT_HINT } from '../chat/replyMarkdown';
 import { DiffReviewService } from './diffReview';
-import { buildAgentTools, executeAgentTool } from './tools';
+import { buildAgentTools, executeAgentTool, USER_FEEDBACK_STOP } from './tools';
 
 export interface AgentRunOptions {
   baseUrl: string;
@@ -27,6 +27,9 @@ export type AgentEvent =
   | { type: 'assistant'; text: string }
   | { type: 'tool'; name: string; detail: string }
   | { type: 'done'; summary: string };
+
+/** Soft cap so ask_user cannot spam the chat every step (Cursor-like rarity). */
+const MAX_ASK_USER_PER_TURN = 3;
 
 /**
  * Runs a tool-calling Agent loop against an OpenAI-compatible endpoint.
@@ -49,6 +52,11 @@ export async function runAgent(opts: AgentRunOptions): Promise<void> {
       'You may receive images in the user message; read them (UI screenshots, error dialogs, diagrams) and use that information when planning tool calls. ' +
       'A read-only workspace snapshot (git branches/paths) may be injected — use it first for questions like "current branch". ' +
       'If you need a live check, call run_terminal (the user confirms in Chat: Allow once / Always this session / Deny). ' +
+      'Use ask_user RARELY (at most a couple times per turn): ' +
+      'kind=choice only when blocked on a real user decision between meaningful alternatives; ' +
+      'kind=suggestion only for optional follow-ups after meaningful work (e.g. commit). ' +
+      'If ask_user is dismissed on choice → continue current plan without expansions; on suggestion → stop. ' +
+      'Never ask_user for routine file edits, style nits, or things you can decide yourself. ' +
       'Reply in the user\'s language. Do not claim you lack filesystem access or that you ran commands the user skipped. ' +
       SU_REPLY_FORMAT_HINT +
       ' After tools finish, end with a brief summary of changes and any verification or next steps.',
@@ -73,6 +81,8 @@ export async function runAgent(opts: AgentRunOptions): Promise<void> {
     opts.timeoutMs,
     Array.isArray(opts.userContent) ? 120_000 : opts.timeoutMs,
   );
+
+  let askUserCount = 0;
 
   for (let step = 0; step < maxSteps; step++) {
     if (opts.signal?.aborted) {
@@ -102,11 +112,29 @@ export async function runAgent(opts: AgentRunOptions): Promise<void> {
         }
         const toolName = call.function.name;
         opts.onEvent({ type: 'tool', name: toolName, detail: `${toolName}…` });
-        const toolResult = await executeAgentTool(
-          toolName,
-          call.function.arguments || '{}',
-          opts.diffs,
-        );
+
+        let toolResult: string;
+        if (toolName === 'ask_user') {
+          askUserCount += 1;
+          if (askUserCount > MAX_ASK_USER_PER_TURN) {
+            toolResult =
+              'SKIPPED: ask_user budget exhausted this turn. Decide technical details yourself, ' +
+              'or finish with a short summary. Do not call ask_user again.';
+          } else {
+            toolResult = await executeAgentTool(
+              toolName,
+              call.function.arguments || '{}',
+              opts.diffs,
+            );
+          }
+        } else {
+          toolResult = await executeAgentTool(
+            toolName,
+            call.function.arguments || '{}',
+            opts.diffs,
+          );
+        }
+
         opts.onEvent({
           type: 'tool',
           name: toolName,
@@ -117,6 +145,13 @@ export async function runAgent(opts: AgentRunOptions): Promise<void> {
           tool_call_id: call.id,
           content: toolResult,
         });
+
+        if (toolResult.includes(USER_FEEDBACK_STOP)) {
+          const stopText = '好的，已结束（未执行建议操作）。';
+          opts.onEvent({ type: 'assistant', text: stopText });
+          opts.onEvent({ type: 'done', summary: '用户关闭建议卡片，任务结束。' });
+          return;
+        }
       }
       continue;
     }
