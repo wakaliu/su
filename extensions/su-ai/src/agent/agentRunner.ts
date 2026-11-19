@@ -4,6 +4,7 @@ import {
   type ChatContentPart,
   type ChatMessage,
 } from '../openaiClient';
+import { SU_REPLY_FORMAT_HINT } from '../chat/replyMarkdown';
 import { DiffReviewService } from './diffReview';
 import { buildAgentTools, executeAgentTool } from './tools';
 
@@ -43,7 +44,9 @@ export async function runAgent(opts: AgentRunOptions): Promise<void> {
       'You may receive images in the user message; read them (UI screenshots, error dialogs, diagrams) and use that information when planning tool calls. ' +
       'A read-only workspace snapshot (git branches/paths) may be injected — use it first for questions like "current branch". ' +
       'If you need a live check, call run_terminal (the user will see a permission dialog; read-only git may be allowed for the rest of the session). ' +
-      'Reply in the user\'s language. Do not claim you lack filesystem access or that you ran commands the user skipped.',
+      'Reply in the user\'s language. Do not claim you lack filesystem access or that you ran commands the user skipped. ' +
+      SU_REPLY_FORMAT_HINT +
+      ' After tools finish, end with a brief summary of changes and any verification or next steps.',
     ...(opts.systemExtras || []),
   ];
 

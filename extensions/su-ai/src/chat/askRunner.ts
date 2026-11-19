@@ -5,6 +5,7 @@ import {
   type ChatMessage,
 } from '../openaiClient';
 import { buildReadonlyTools, executeAgentTool } from '../agent/tools';
+import { SU_REPLY_FORMAT_HINT } from './replyMarkdown';
 
 export interface AskRunOptions {
   baseUrl: string;
@@ -37,7 +38,8 @@ export async function runAskWithTools(opts: AskRunOptions): Promise<void> {
       'You are associated with the currently open workspace. A workspace snapshot is injected below. ' +
       'You MAY call list_dir and read_file to inspect the project (README, source files, folders). ' +
       'Do NOT claim you lack permission to access the project, files, or repository. ' +
-      'Do NOT invent file contents — read them. For edits or terminal commands, tell the user to switch to Agent (Ctrl+I).',
+      'Do NOT invent file contents — read them. For edits or terminal commands, tell the user to switch to Agent (Ctrl+I). ' +
+      SU_REPLY_FORMAT_HINT,
     ...(opts.systemExtras || []),
   ];
 

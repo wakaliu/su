@@ -1,5 +1,4 @@
 import fs from 'fs';
-import { createRequire } from 'module';
 import { spawnSync } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -28,7 +27,13 @@ while (i < src.length) {
 }
 const templateLiteral = src.slice(tplStart, i + 1);
 const html = Function(
-  `"use strict"; const nonce = "test"; const csp = "default-src 'none'"; return ${templateLiteral};`,
+  `"use strict";
+   const nonce = "test";
+   const csp = "default-src 'none'";
+   const switchBtn = "";
+   const surface = "ide";
+   const mdRendererJson = ${JSON.stringify('function renderReplyMarkdown(s){return String(s||"");} ')};
+   return ${templateLiteral};`,
 )();
 const m = html.match(/<script nonce="test">([\s\S]*?)<\/script>/);
 if (!m) {

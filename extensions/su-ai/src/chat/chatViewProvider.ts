@@ -16,6 +16,7 @@ import {
 } from './attachments';
 import { listAtMentionItems } from './atMentions';
 import { runAskWithTools } from './askRunner';
+import { renderReplyMarkdown } from './replyMarkdown';
 import { loadWorkspaceRulesFragment } from './rulesCatalog';
 import { listInstalledSkills } from './skillsCatalog';
 import { buildWorkspaceContextSnippet } from './workspaceContext';
@@ -813,6 +814,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       surface === 'agent'
         ? `<button type="button" class="icon-btn" id="btnIdeWindow" title="回到 IDE Window">IDE ↗</button>`
         : `<button type="button" class="icon-btn" id="btnAgentWindow" title="打开 Agent Window">Agent ↗</button>`;
+    // Inject shared reply renderer (tables/headings) into the webview without a second copy.
+    // JSON.stringify keeps backticks / ${} in the function source from breaking this template.
+    const mdRendererJson = JSON.stringify(renderReplyMarkdown.toString());
 
     return `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -887,16 +891,45 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     .msg.assistant { background: var(--ai-bg); align-self: stretch; }
     .msg.error { color: var(--err); white-space: pre-wrap; }
     .msg .role { font-size: 10px; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: .04em; }
-    .msg .body.md h1, .msg .body.md h2, .msg .body.md h3 { margin: 0.6em 0 0.35em; line-height: 1.25; font-size: 1.05em; }
-    .msg .body.md p { margin: 0.4em 0; }
-    .msg .body.md ul, .msg .body.md ol { margin: 0.35em 0; padding-left: 1.3em; }
+    .msg .body.md h1, .msg .body.md h2, .msg .body.md h3 {
+      margin: 0.95em 0 0.4em; line-height: 1.3; font-weight: 700; letter-spacing: .01em; color: var(--fg);
+    }
+    .msg .body.md h1 { font-size: 1.35em; padding-bottom: 5px; border-bottom: 1px solid var(--border); }
+    .msg .body.md h2 { font-size: 1.2em; padding-bottom: 3px; border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent); }
+    .msg .body.md h3 { font-size: 1.06em; }
+    .msg .body.md h1:first-child, .msg .body.md h2:first-child, .msg .body.md h3:first-child { margin-top: 0.15em; }
+    .msg .body.md strong { font-weight: 700; color: var(--fg); }
+    .msg .body.md .reply-table {
+      margin: 0.7em 0; overflow-x: auto; border: 1px solid var(--border); border-radius: 8px;
+    }
+    .msg .body.md table { width: 100%; min-width: 240px; margin: 0; border-collapse: collapse; font-size: 12.5px; line-height: 1.45; }
+    .msg .body.md th, .msg .body.md td { padding: 7px 10px; text-align: left; vertical-align: top; border: 1px solid var(--border); }
+    .msg .body.md th { background: color-mix(in srgb, var(--btn-bg) 16%, var(--code-bg)); font-weight: 700; }
+    .msg .body.md tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--code-bg) 45%, transparent); }
+    .msg .body.md .align-center { text-align: center; }
+    .msg .body.md .align-right { text-align: right; }
+    .msg .body.md hr { border: 0; border-top: 1px solid var(--border); margin: 1em 0; }
+    .msg .body.md p { margin: 0.45em 0; line-height: 1.55; }
+    .msg .body.md ul, .msg .body.md ol { margin: 0.4em 0; padding-left: 1.35em; line-height: 1.5; }
+    .msg .body.md li { margin: 0.18em 0; }
     .msg .body.md code { font-family: var(--mono); font-size: 12px; background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 4px; }
+    .msg .body.md .reply-code {
+      margin: 0.55em 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--code-bg);
+    }
+    .msg .body.md .reply-code .code-actions {
+      display: flex; gap: 6px; align-items: center; justify-content: flex-end; flex-wrap: wrap;
+      margin: 0; padding: 4px 8px; border-bottom: 1px solid var(--border);
+      background: color-mix(in srgb, var(--input-bg) 70%, transparent);
+    }
+    .msg .body.md .reply-code .code-actions span {
+      margin-right: auto; font-size: 11px; color: var(--muted); font-family: var(--mono);
+    }
     .msg .body.md pre {
       margin: 0.5em 0; padding: 8px; overflow: auto; background: var(--code-bg);
       border-radius: 6px; border: 1px solid var(--border); position: relative;
     }
+    .msg .body.md .reply-code pre { margin: 0; border: none; border-radius: 0; }
     .msg .body.md pre code { padding: 0; background: transparent; }
-    .code-actions { display: flex; gap: 4px; margin: -4px 0 6px; justify-content: flex-end; }
     .code-actions button {
       font-size: 11px; padding: 2px 8px; border-radius: 4px; border: 1px solid var(--border);
       background: var(--btn2-bg); color: var(--btn2-fg); cursor: pointer;
@@ -1544,64 +1577,33 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
 
+    const __suRenderReplyMarkdown = new Function('return (' + ${mdRendererJson} + ')')();
     function renderMarkdown(src) {
-      const tick = String.fromCharCode(96);
-      const escaped = escapeHtml(src);
-      const fences = [];
-      const fenceRe = new RegExp(tick + tick + tick + '([\\\\w+-]*)\\\\n([\\\\s\\\\S]*?)' + tick + tick + tick, 'g');
-      let text = escaped.replace(fenceRe, (_, lang, code) => {
-        const i = fences.length;
-        fences.push({ lang: lang || '', code: code.replace(/\\n$/, '') });
-        return '@@FENCE' + i + '@@';
-      });
-      text = text.replace(new RegExp(tick + '([^' + tick + '\\\\n]+)' + tick, 'g'), '<code>$1</code>');
-      text = text.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-      text = text.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-      text = text.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-      text = text.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
-      text = text.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');
-      text = text.replace(new RegExp('\\\\[([^\\\\]]+)\\\\]\\\\((https?:\\\\/\\\\/[^)\\\\s]+)\\\\)', 'g'), '<a href="$2">$1</a>');
-      text = text.replace(/^- (.+)$/gm, '<li>$1</li>');
-      text = text.replace(/(?:<li>[\\s\\S]*?<\\/li>\\n?)+/g, (m) => '<ul>' + m + '</ul>');
-      text = text.replace(/\\n{2,}/g, '</p><p>');
-      text = text.replace(/\\n/g, '<br>');
-      text = '<p>' + text + '</p>';
-      text = text.replace(/@@FENCE(\\d+)@@/g, (_, i) => {
-        const f = fences[Number(i)];
-        const rawAttr = escapeHtml(f.code);
-        return '<div class="code-actions">' +
-          '<button type="button" data-copy="' + i + '">复制</button>' +
-          '<button type="button" data-apply="' + i + '">应用</button></div>' +
-          '<pre><code class="language-' + f.lang + '">' + f.code + '</code></pre>' +
-          '<textarea class="code-raw" data-raw-i="' + i + '" style="display:none">' + rawAttr + '</textarea>';
-      });
-      text = text.replace(/<p><\\/p>/g, '');
-      text = text.replace(/<p>(<h[1-3]>)/g, '$1').replace(/(<\\/h[1-3]>)<\\/p>/g, '$1');
-      text = text.replace(/<p>(<div class="code-actions">)/g, '$1').replace(/(<\\/pre>)<\\/p>/g, '$1');
-      text = text.replace(/<p>(<ul>)/g, '$1').replace(/(<\\/ul>)<\\/p>/g, '$1');
-      text = text.replace(/<p>(<blockquote>)/g, '$1').replace(/(<\\/blockquote>)<\\/p>/g, '$1');
-      text = text.replace(/<p>(<textarea)/g, '$1').replace(/(<\\/textarea>)<\\/p>/g, '$1');
-      return text;
+      try {
+        return __suRenderReplyMarkdown(src || '');
+      } catch (err) {
+        return '<p>' + escapeHtml(String(src || '')) + '</p>';
+      }
     }
 
     function wireCodeActions(root) {
-      root.querySelectorAll('[data-copy]').forEach((btn) => {
-        btn.addEventListener('click', () => {
-          const i = btn.getAttribute('data-copy');
-          const ta = root.querySelector('textarea[data-raw-i="' + i + '"]');
-          const code = ta ? ta.value : '';
-          navigator.clipboard.writeText(code).catch(() => {});
-          btn.textContent = '已复制';
-          setTimeout(() => { btn.textContent = '复制'; }, 1200);
-        });
-      });
-      root.querySelectorAll('[data-apply]').forEach((btn) => {
-        btn.addEventListener('click', () => {
-          const i = btn.getAttribute('data-apply');
-          const ta = root.querySelector('textarea[data-raw-i="' + i + '"]');
-          const code = ta ? ta.value : '';
-          vscode.postMessage({ type: 'applyCode', code });
-        });
+      root.querySelectorAll('.reply-code').forEach((block) => {
+        const codeEl = block.querySelector('pre code');
+        const text = codeEl ? (codeEl.textContent || '') : '';
+        const copyBtn = block.querySelector('[data-copy]');
+        const applyBtn = block.querySelector('[data-apply]');
+        if (copyBtn) {
+          copyBtn.addEventListener('click', () => {
+            navigator.clipboard.writeText(text).catch(() => {});
+            copyBtn.textContent = '已复制';
+            setTimeout(() => { copyBtn.textContent = '复制'; }, 1200);
+          });
+        }
+        if (applyBtn) {
+          applyBtn.addEventListener('click', () => {
+            vscode.postMessage({ type: 'applyCode', code: text });
+          });
+        }
       });
     }
 
