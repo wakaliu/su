@@ -105,7 +105,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const agentWindowStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 98);
   agentWindowStatus.text = '$(window) Agent Window';
-  agentWindowStatus.tooltip = '打开 Su Agent Window（对话主界面）';
+  agentWindowStatus.tooltip = '在独立窗口打开 Su Agent Window';
   agentWindowStatus.command = 'su.openAgentWindow';
   agentWindowStatus.show();
   context.subscriptions.push(agentWindowStatus);

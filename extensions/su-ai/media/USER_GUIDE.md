@@ -68,8 +68,8 @@ su 使用**同一套** Base URL + API Key，可配置多个模型 id：
 ## 4. IDE Window 与 Agent Window
 
 - **IDE Window**（默认）：中间写代码，右侧 **Su Chat**。
-- **Agent Window**：对话为主的大窗口。命令 `Su: 打开 Agent Window`，或 Chat 顶栏 **Agent ↗**、状态栏同名按钮。
-- 在 Agent Window 顶栏点 **IDE ↗**（或命令 `Su: 打开 IDE Window`）回到经典布局。
+- **Agent Window**：独立 OS 窗口（类似 ChatGPT / DeepSeek 桌面窗，**不是** IDE 里再开一个标签）。命令 `Su: 打开 Agent Window（独立窗口）`，或 Chat 顶栏 **Agent ↗**、状态栏同名按钮。
+- 在 Agent Window 顶栏点 **IDE ↗**（或命令 `Su: 打开 IDE Window`）关闭独立窗并回到经典布局。
 - 两种窗口**共用同一会话**；不是微软 Pitch your idea / Sessions 壳。
 
 ## 5. 使用 Chat（问答）
@@ -143,7 +143,7 @@ su 使用**同一套** Base URL + API Key，可配置多个模型 id：
 | 命令 | 作用 |
 |------|------|
 | `Su: 打开 Chat` | 打开右侧 AI 面板（`Ctrl+L`） |
-| `Su: 打开 Agent Window` | 对话主界面（大窗） |
+| `Su: 打开 Agent Window（独立窗口）` | 弹出独立 OS 对话窗 |
 | `Su: 打开 IDE Window` | 回到经典编辑器 + 侧栏 Chat |
 | `Su: 打开 Agent` | 打开面板并切 Agent 模式（`Ctrl+I`） |
 | `Su: 停止生成` | 停止流式输出（`Esc`，生成中） |

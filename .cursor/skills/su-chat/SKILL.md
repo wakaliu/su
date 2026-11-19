@@ -18,7 +18,7 @@ v0.2 起侧栏 Webview `su.chat`；v0.5 拖图/文件、/ Skills、Rules、@；v
 ## 约定
 
 - 快捷键：`Ctrl+L` → `su.openChat`；`Ctrl+I` → `su.focusAgent`；`Esc` → `su.stopGeneration`
-- `su.openAgentWindow` / `su.openIdeWindow`：对话大窗 ⇄ 经典 IDE（共用会话；非微软 Sessions）
+- `su.openAgentWindow` / `su.openIdeWindow`：独立 OS 对话窗 ⇄ 经典 IDE（共用会话；非微软 Sessions）
 - 拖入图片 → 多模态 `image_url`；拖入文件 → 文本上下文；侧栏/标签需 **Shift** 或右键 `su.addToChat`
 - 图片点击灯箱放大（composer / 用户消息 / Markdown `![]()`）；Esc 关闭
 - `/` Skills；`@` 文件/选区；`.su/rules` + `su.rules.enabled`

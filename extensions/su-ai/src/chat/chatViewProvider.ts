@@ -234,12 +234,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     });
   }
 
+  /** True after Agent Window was moved into a separate OS window (auxiliary window). */
+  private agentPanelDetached = false;
+
   /**
-   * Opens the Su Agent Window (editor-area chat shell). Shares sessions with the IDE side chat.
+   * Opens Su Agent Window as a standalone OS window (ChatGPT/DeepSeek-app style),
+   * not an editor tab inside the IDE. Shares sessions with the IDE side chat.
    */
   async openAgentWindow(): Promise<void> {
     if (this.agentPanel) {
-      this.agentPanel.reveal(vscode.ViewColumn.One, false);
+      this.agentPanel.reveal(this.agentPanel.viewColumn ?? vscode.ViewColumn.Active, false);
+      if (!this.agentPanelDetached) {
+        await this.detachAgentPanelToNewWindow();
+      }
       await this.pushStatus();
       this.pushRestore();
       return;
@@ -248,7 +255,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const panel = vscode.window.createWebviewPanel(
       'su.agentWindow',
       'Su Agent Window',
-      vscode.ViewColumn.One,
+      vscode.ViewColumn.Active,
       {
         enableScripts: true,
         retainContextWhenHidden: true,
@@ -256,6 +263,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       },
     );
     this.agentPanel = panel;
+    this.agentPanelDetached = false;
     panel.iconPath = vscode.Uri.joinPath(this.context.extensionUri, 'media', 'su.svg');
     panel.webview.html = this.getHtml(panel.webview, 'agent');
     panel.webview.onDidReceiveMessage((raw: WebviewToExt) => {
@@ -263,19 +271,44 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     });
     panel.onDidDispose(() => {
       this.agentPanel = undefined;
+      this.agentPanelDetached = false;
     });
     this.context.subscriptions.push(panel);
     await this.pushStatus();
     this.pushRestore();
+    // Webview must be the active editor before moveEditorToNewWindow can detach it.
+    await this.detachAgentPanelToNewWindow();
   }
 
   /**
-   * Returns to classic IDE layout: focus auxiliary Su Chat and optionally close Agent Window.
+   * Moves the Agent WebviewPanel into a new OS-level window (VS Code auxiliary window).
+   */
+  private async detachAgentPanelToNewWindow(): Promise<void> {
+    if (!this.agentPanel) {
+      return;
+    }
+    this.agentPanel.reveal(this.agentPanel.viewColumn ?? vscode.ViewColumn.Active, false);
+    // Let the workbench activate the webview editor before the move command runs.
+    await new Promise<void>((resolve) => setTimeout(resolve, 80));
+    try {
+      await vscode.commands.executeCommand('workbench.action.moveEditorToNewWindow');
+      this.agentPanelDetached = true;
+    } catch (e) {
+      console.warn('[su-ai] moveEditorToNewWindow failed; Agent stays in IDE editor area', e);
+      void vscode.window.showWarningMessage(
+        '无法拆到独立窗口（将留在 IDE 编辑器内）。可手动：右键标签 → Move into New Window。',
+      );
+    }
+  }
+
+  /**
+   * Returns to classic IDE layout: focus auxiliary Su Chat and close the standalone Agent Window.
    */
   async openIdeWindow(opts?: { closeAgentPanel?: boolean }): Promise<void> {
     if (opts?.closeAgentPanel !== false && this.agentPanel) {
       this.agentPanel.dispose();
       this.agentPanel = undefined;
+      this.agentPanelDetached = false;
     }
     await this.open();
   }
@@ -825,7 +858,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const switchBtn =
       surface === 'agent'
         ? `<button type="button" class="icon-btn" id="btnIdeWindow" title="回到 IDE Window">IDE ↗</button>`
-        : `<button type="button" class="icon-btn" id="btnAgentWindow" title="打开 Agent Window">Agent ↗</button>`;
+        : `<button type="button" class="icon-btn" id="btnAgentWindow" title="在独立窗口打开 Agent Window">Agent ↗</button>`;
     // Inject shared reply renderer (tables/headings) into the webview without a second copy.
     // JSON.stringify keeps backticks / ${} in the function source from breaking this template.
     const mdRendererJson = JSON.stringify(renderReplyMarkdown.toString());

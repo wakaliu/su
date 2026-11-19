@@ -99,7 +99,7 @@
       },
       {
         "command": "su.openAgentWindow",
-        "title": "Su: 打开 Agent Window",
+        "title": "Su: 打开 Agent Window（独立窗口）",
         "category": "Su",
         "icon": "$(window)"
       },

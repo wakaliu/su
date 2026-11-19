@@ -33,7 +33,7 @@
 ## 当前版本（v0.6）
 
 - **IDE Window**：经典编辑器 + 右侧 Su Chat（现状）
-- **Agent Window**：编辑器区全宽 Webview（`su.openAgentWindow`）；顶栏「IDE ↗」切回；与侧栏共用会话
+- **Agent Window**：独立 OS 窗口（`su.openAgentWindow` → `moveEditorToNewWindow`）；顶栏「IDE ↗」切回；与侧栏共用会话
 - 入口：Chat 顶栏「Agent ↗」、状态栏、命令面板、帮助菜单 Su
 - v0.5 能力保留：拖图/文件、/ Skills、@、Rules、工作区快照、Ask 只读工具、过程折叠
 - 验收：[docs/acceptance/v0.6.md](../acceptance/v0.6.md)；v0.5 见 [v0.5.md](../acceptance/v0.5.md)
