@@ -20,6 +20,7 @@ v0.2 起侧栏 Webview `su.chat`；v0.5 拖图/文件、/ Skills、Rules、@；v
 - 快捷键：`Ctrl+L` → `su.openChat`；`Ctrl+I` → `su.focusAgent`；`Esc` → `su.stopGeneration`
 - `su.openAgentWindow` / `su.openIdeWindow`：对话大窗 ⇄ 经典 IDE（共用会话；非微软 Sessions）
 - 拖入图片 → 多模态 `image_url`；拖入文件 → 文本上下文；侧栏/标签需 **Shift** 或右键 `su.addToChat`
+- 图片点击灯箱放大（composer / 用户消息 / Markdown `![]()`）；Esc 关闭
 - `/` Skills；`@` 文件/选区；`.su/rules` + `su.rules.enabled`
 - 工作区快照注入；Ask 只读 list/read；Agent 终端确认
 - 答复格式：`replyMarkdown.ts` 渲染标题/GFM 表格；Ask/Agent 共用 `SU_REPLY_FORMAT_HINT`

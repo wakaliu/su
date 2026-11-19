@@ -16,16 +16,24 @@ export function renderReplyMarkdown(source: string): string {
   function inline(text: string, depth = 0): string {
     if (depth >= 8) return escape(text);
     // Match tokens on the original text, never on already generated HTML.
-    const token = /\\([\\`*_|\[\]])|(`+)([^\n]*?)\2(?!`)|\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(\*\*|__)(?=\S)(.+?\S|\S)\6|\*(?=\S)([^*\n]+?)\*/g;
+    const token = /\\([\\`*_|\[\]])|(`+)([^\n]*?)\2(?!`)|!\[([^\]\n]*)\]\((data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=\s]+|https?:\/\/[^\s)]+)\)|\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(\*\*|__)(?=\S)(.+?\S|\S)\8|\*(?=\S)([^*\n]+?)\*/g;
     let html = '';
     let end = 0;
     for (const match of text.matchAll(token)) {
       const index = match.index!;
       html += escape(text.slice(end, index));
-      const [, literal, ticks, code, label, href, , bold, emphasis] = match;
+      const [, literal, ticks, code, imgAlt, imgSrc, label, href, , bold, emphasis] = match;
       if (literal) html += escape(literal);
       else if (ticks) html += '<code>' + escape(code) + '</code>';
-      else if (href) html += '<a href="' + escape(href) + '">' + escape(label) + '</a>';
+      else if (imgSrc) {
+        const src = imgSrc.replace(/\s+/g, '');
+        html +=
+          '<img class="md-img zoomable" src="' +
+          escape(src) +
+          '" alt="' +
+          escape(imgAlt || '') +
+          '" title="点击放大" />';
+      } else if (href) html += '<a href="' + escape(href) + '">' + escape(label) + '</a>';
       else if (bold) html += '<strong>' + inline(bold, depth + 1) + '</strong>';
       else if (emphasis) html += '<em>' + inline(emphasis, depth + 1) + '</em>';
       end = index + match[0].length;

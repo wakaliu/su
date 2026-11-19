@@ -12,6 +12,7 @@ const cases = [
   ['tbl-align', '|左|右|\n|:--|---:|\n|a|b|', (h) => h.includes('<table>') && h.includes('align-right')],
   ['list', '1. 一\n2. 二\n\n- x\n- y', (h) => h.includes('<ol') && h.includes('<ul>')],
   ['inline', '见 `x` 与 **粗**', (h) => h.includes('<code>x</code>') && h.includes('<strong>')],
+  ['img', '看 ![示意](https://example.com/a.png)', (h) => h.includes('md-img zoomable') && h.includes('example.com/a.png')],
   ['fence', '```ts\nconst n=1;\n```', (h) => h.includes('reply-code') && h.includes('const n=1;')],
   ['misc', '> q\n\n---\n\nok', (h) => h.includes('<blockquote>') && h.includes('<hr>')],
 ];

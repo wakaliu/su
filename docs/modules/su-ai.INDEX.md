@@ -12,7 +12,7 @@
 | `extensions/su-ai/src/extension.ts` | activate / 审阅命令 / 待审状态栏 / Agent Window 入口 |
 | `extensions/su-ai/src/openaiClient.ts` | 流式 / 非流式 / tools 调用 |
 | `extensions/su-ai/src/chat/chatViewProvider.ts` | Chat + Agent UI；IDE 侧栏与 Agent Window 共用消息/会话 |
-| `extensions/su-ai/src/chat/replyMarkdown.ts` | 答复 Markdown（标题/表格/列表）渲染；注入 Webview |
+| `extensions/su-ai/src/chat/replyMarkdown.ts` | 答复 Markdown（标题/表格/列表/图片）渲染；注入 Webview；Chat 灯箱放大 |
 | `extensions/su-ai/src/chat/chatCore.ts` | 共享核心再导出（Ask/Agent runners、附件、Rules、@） |
 | `extensions/su-ai/src/chat/chatSessions.ts` | 多会话存储 / 迁移 |
 | `extensions/su-ai/src/chat/askRunner.ts` | Ask 只读 list_dir / read_file 循环 |

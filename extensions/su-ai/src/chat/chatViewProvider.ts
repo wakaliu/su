@@ -94,7 +94,12 @@ type ExtToWebview =
       }>;
     }
   | { type: 'restore'; messages: Array<{ role: 'user' | 'assistant'; content: string }>; title: string }
-  | { type: 'user'; text: string }
+  | {
+      type: 'user';
+      text: string;
+      /** Live-turn image thumbs (not persisted in session history). */
+      images?: Array<{ name: string; mime: string; dataBase64: string }>;
+    }
   | { type: 'assistantStart' }
   | { type: 'assistantDelta'; text: string }
   | { type: 'assistantDone' }
@@ -643,7 +648,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const next = [...this.history, { role: 'user' as const, content: turn.historyText }];
     this.history = next;
     await this.saveHistory();
-    this.post({ type: 'user', text: turn.historyText });
+    const previewImages = (attachments || [])
+      .filter((a): a is Extract<ChatAttachment, { kind: 'image' }> => a.kind === 'image')
+      .map((a) => ({ name: a.name, mime: a.mime, dataBase64: a.dataBase64 }));
+    this.post({
+      type: 'user',
+      text: turn.historyText,
+      images: previewImages.length ? previewImages : undefined,
+    });
     this.post({ type: 'assistantStart' });
     await this.setStreaming(true);
 
@@ -1066,8 +1078,36 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
     .attach-chip.image-chip img {
       width: 108px; height: 72px; object-fit: cover; border-radius: 8px; display: block;
-      background: var(--code-bg);
+      background: var(--code-bg); cursor: zoom-in;
     }
+    .msg-images {
+      display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px;
+    }
+    .msg-images img.msg-thumb, .msg .body.md img.md-img {
+      max-width: 160px; max-height: 120px; object-fit: cover; border-radius: 8px;
+      border: 1px solid var(--border); cursor: zoom-in; background: var(--code-bg);
+      display: block;
+    }
+    .msg .body.md img.md-img { margin: 0.4em 0; }
+    .img-lightbox {
+      display: none; position: fixed; inset: 0; z-index: 1000;
+      align-items: center; justify-content: center;
+      background: rgba(0, 0, 0, 0.72); backdrop-filter: blur(2px);
+      padding: 16px; box-sizing: border-box;
+    }
+    .img-lightbox.open { display: flex; }
+    .img-lightbox img {
+      max-width: min(92vw, 100%); max-height: 88vh; object-fit: contain;
+      border-radius: 8px; box-shadow: 0 12px 40px rgba(0,0,0,.45);
+      cursor: zoom-out; background: #111;
+    }
+    .img-lightbox-close {
+      position: absolute; top: 10px; right: 12px; width: 32px; height: 32px;
+      border: 1px solid color-mix(in srgb, #fff 35%, transparent);
+      border-radius: 8px; background: rgba(0,0,0,.45); color: #fff;
+      font-size: 20px; line-height: 1; cursor: pointer;
+    }
+    .img-lightbox-close:hover { background: rgba(0,0,0,.7); }
     .attach-chip.image-chip .cap {
       display: flex; align-items: center; gap: 4px; padding: 2px 4px; max-width: 108px;
     }
@@ -1152,6 +1192,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     </div>
     <div class="hp-list" id="historyList"></div>
   </div>
+  <div id="imgLightbox" class="img-lightbox" aria-hidden="true" title="点击空白或按 Esc 关闭">
+    <button type="button" class="img-lightbox-close" id="imgLightboxClose" aria-label="关闭">×</button>
+    <img id="imgLightboxImg" alt="" />
+  </div>
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     const thread = document.getElementById('thread');
@@ -1224,7 +1268,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         if (a.kind === 'image' && a.dataBase64) {
           el.className = 'attach-chip image-chip';
           const img = document.createElement('img');
+          img.className = 'zoomable';
           img.alt = a.name || 'image';
+          img.title = '点击放大';
           img.src = 'data:' + (a.mime || 'image/png') + ';base64,' + a.dataBase64;
           el.appendChild(img);
           const cap = document.createElement('div');
@@ -1637,7 +1683,44 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       if (e) e.remove();
     }
 
-    function addMsg(role, text, cls, asMarkdown) {
+    const imgLightbox = document.getElementById('imgLightbox');
+    const imgLightboxImg = document.getElementById('imgLightboxImg');
+    const imgLightboxClose = document.getElementById('imgLightboxClose');
+
+    function openLightbox(src, alt) {
+      if (!src || !imgLightbox || !imgLightboxImg) return;
+      imgLightboxImg.src = src;
+      imgLightboxImg.alt = alt || '';
+      imgLightbox.classList.add('open');
+      imgLightbox.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeLightbox() {
+      if (!imgLightbox || !imgLightboxImg) return;
+      if (!imgLightbox.classList.contains('open')) return false;
+      imgLightbox.classList.remove('open');
+      imgLightbox.setAttribute('aria-hidden', 'true');
+      imgLightboxImg.removeAttribute('src');
+      return true;
+    }
+
+    function appendMsgImages(body, images) {
+      if (!images || !images.length) return;
+      const row = document.createElement('div');
+      row.className = 'msg-images';
+      images.forEach((im) => {
+        if (!im || !im.dataBase64) return;
+        const img = document.createElement('img');
+        img.className = 'msg-thumb zoomable';
+        img.alt = im.name || 'image';
+        img.title = '点击放大';
+        img.src = 'data:' + (im.mime || 'image/png') + ';base64,' + im.dataBase64;
+        row.appendChild(img);
+      });
+      if (row.childNodes.length) body.appendChild(row);
+    }
+
+    function addMsg(role, text, cls, asMarkdown, images) {
       clearEmpty();
       messageCount++;
       const el = document.createElement('div');
@@ -1651,7 +1734,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         b.innerHTML = renderMarkdown(text || '');
         wireCodeActions(b);
       } else {
-        b.textContent = text || '';
+        let display = String(text || '');
+        if (images && images.length) {
+          display = display.replace(/\\[图片:[^\\]]*\\]/g, '').replace(/\\n{3,}/g, '\\n\\n').trim();
+        }
+        b.textContent = display;
+        appendMsgImages(b, images);
       }
       el.appendChild(r);
       el.appendChild(b);
@@ -1919,12 +2007,43 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
       }
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
-      if (e.key === 'Escape' && streaming) { vscode.postMessage({ type: 'stop' }); }
+      if (e.key === 'Escape') {
+        if (closeLightbox()) {
+          e.preventDefault();
+          return;
+        }
+        if (streaming) vscode.postMessage({ type: 'stop' });
+      }
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && closeLightbox()) {
+        e.preventDefault();
+      }
+    });
+    imgLightbox.addEventListener('click', (e) => {
+      if (e.target === imgLightbox || e.target === imgLightboxImg) closeLightbox();
+    });
+    imgLightboxClose.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeLightbox();
     });
     vscode.postMessage({ type: 'listSkills' });
     thread.addEventListener('click', (e) => {
       const a = e.target.closest && e.target.closest('a');
       if (a && a.href) e.preventDefault();
+      const img = e.target && e.target.closest ? e.target.closest('img.zoomable') : null;
+      if (img && img.src) {
+        e.preventDefault();
+        openLightbox(img.src, img.alt || '');
+      }
+    });
+    attachRow.addEventListener('click', (e) => {
+      if (e.target && e.target.closest && e.target.closest('.x')) return;
+      const img = e.target && e.target.closest ? e.target.closest('img.zoomable') : null;
+      if (img && img.src) {
+        e.preventDefault();
+        openLightbox(img.src, img.alt || '');
+      }
     });
 
     window.addEventListener('message', (event) => {
@@ -1961,7 +2080,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           }
           break;
         case 'user':
-          addMsg('you', msg.text, 'user', false);
+          addMsg('you', msg.text, 'user', false, msg.images);
           break;
         case 'assistantStart': {
           setStreaming(true);
