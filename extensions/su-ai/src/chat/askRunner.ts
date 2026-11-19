@@ -22,6 +22,7 @@ export interface AskRunOptions {
 export type AskEvent =
   | { type: 'assistant'; text: string }
   | { type: 'tool'; name: string; detail: string }
+  | { type: 'progress'; text: string }
   | { type: 'done'; summary: string };
 
 /**
@@ -63,6 +64,11 @@ export async function runAskWithTools(opts: AskRunOptions): Promise<void> {
     if (opts.signal?.aborted) {
       throw new Error('已停止生成');
     }
+
+    opts.onEvent({
+      type: 'progress',
+      text: step === 0 ? '正在思考 / 等待模型…' : `继续推理 · 第 ${step + 1} 轮…`,
+    });
 
     const result = await completeChatWithTools({
       baseUrl: opts.baseUrl,

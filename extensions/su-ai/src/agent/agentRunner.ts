@@ -6,7 +6,12 @@ import {
 } from '../openaiClient';
 import { SU_REPLY_FORMAT_HINT } from '../chat/replyMarkdown';
 import { DiffReviewService } from './diffReview';
-import { buildAgentTools, executeAgentTool, USER_FEEDBACK_STOP } from './tools';
+import {
+  buildAgentTools,
+  executeAgentTool,
+  USER_FEEDBACK_ABORTED,
+  USER_FEEDBACK_STOP,
+} from './tools';
 
 export interface AgentRunOptions {
   baseUrl: string;
@@ -26,6 +31,8 @@ export interface AgentRunOptions {
 export type AgentEvent =
   | { type: 'assistant'; text: string }
   | { type: 'tool'; name: string; detail: string }
+  /** Live status while waiting on the model (no tool yet). */
+  | { type: 'progress'; text: string }
   | { type: 'done'; summary: string };
 
 /**
@@ -49,10 +56,9 @@ export async function runAgent(opts: AgentRunOptions): Promise<void> {
       'You may receive images in the user message; read them (UI screenshots, error dialogs, diagrams) and use that information when planning tool calls. ' +
       'A read-only workspace snapshot (git branches/paths) may be injected — use it first for questions like "current branch". ' +
       'If you need a live check, call run_terminal (the user confirms in Chat: Allow once / Always this session / Deny). ' +
-      'Use ask_user when blocked on a real user decision or for optional follow-ups (e.g. commit); ' +
-      'complex/ambiguous tasks may need several ask_user calls — that is OK. ' +
-      'Still avoid spam: do not ask for routine file edits, style nits, or things you can decide yourself. ' +
-      'kind=choice for branching decisions; kind=suggestion for optional next steps. ' +
+      'ask_user: use kind=choice only for real forks while doing the requested work; ' +
+      'use kind=suggestion ONLY for optional follow-ups AFTER you already made progress (e.g. commit). ' +
+      'Never ask_user(suggestion) to ask whether you may start a task the user already asked for — just begin with tools. ' +
       'If ask_user is dismissed on choice → continue current plan without expansions; on suggestion → stop. ' +
       'Reply in the user\'s language. Do not claim you lack filesystem access or that you ran commands the user skipped. ' +
       SU_REPLY_FORMAT_HINT +
@@ -83,6 +89,11 @@ export async function runAgent(opts: AgentRunOptions): Promise<void> {
     if (opts.signal?.aborted) {
       throw new Error('已停止生成');
     }
+
+    opts.onEvent({
+      type: 'progress',
+      text: step === 0 ? '正在思考 / 等待模型…' : `继续推理 · 第 ${step + 1} 轮…`,
+    });
 
     const result = await completeChatWithTools({
       baseUrl: opts.baseUrl,
@@ -124,6 +135,10 @@ export async function runAgent(opts: AgentRunOptions): Promise<void> {
           tool_call_id: call.id,
           content: toolResult,
         });
+
+        if (toolResult.includes(USER_FEEDBACK_ABORTED) || opts.signal?.aborted) {
+          throw new Error('已停止生成');
+        }
 
         if (toolResult.includes(USER_FEEDBACK_STOP)) {
           const stopText = '好的，已结束（未执行建议操作）。';

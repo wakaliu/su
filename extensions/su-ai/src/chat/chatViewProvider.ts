@@ -128,6 +128,7 @@ type ExtToWebview =
   | { type: 'assistantDelta'; text: string }
   | { type: 'assistantDone' }
   | { type: 'tool'; text: string }
+  | { type: 'progress'; text: string }
   | {
       type: 'terminalPermission';
       id: string;
@@ -149,7 +150,7 @@ type ExtToWebview =
   | {
       type: 'userFeedbackSettled';
       id: string;
-      status: 'answered' | 'dismissed';
+      status: 'answered' | 'dismissed' | 'aborted';
       selected: string[];
       freeText: string;
     }
@@ -290,12 +291,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     for (const id of ids) {
       const waiter = this.userFeedbackWaiters.get(id);
       this.userFeedbackWaiters.delete(id);
-      const dismissed: UserFeedbackResult = { status: 'dismissed', selected: [], freeText: '' };
-      waiter?.(dismissed);
+      // Stop/Esc/session change — not a deliberate "close suggestion" dismiss.
+      const aborted: UserFeedbackResult = { status: 'aborted', selected: [], freeText: '' };
+      waiter?.(aborted);
       this.post({
         type: 'userFeedbackSettled',
         id,
-        status: 'dismissed',
+        status: 'aborted',
         selected: [],
         freeText: '',
       });
@@ -929,7 +931,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         history: this.history.slice(0, -1),
         signal: this.abort?.signal,
         onEvent: (ev) => {
-          if (ev.type === 'tool') {
+          if (ev.type === 'progress') {
+            this.post({ type: 'progress', text: ev.text });
+          } else if (ev.type === 'tool') {
             this.post({ type: 'tool', text: ev.detail });
           } else if (ev.type === 'assistant') {
             assistant = ev.text;
@@ -986,7 +990,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         signal: this.abort?.signal,
         diffs: this.diffs,
         onEvent: (ev) => {
-          if (ev.type === 'tool') {
+          if (ev.type === 'progress') {
+            this.post({ type: 'progress', text: ev.text });
+          } else if (ev.type === 'tool') {
             this.post({ type: 'tool', text: ev.detail });
             this.emitDiffsChanged();
           } else if (ev.type === 'assistant') {
@@ -2164,9 +2170,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     function showUserFeedback(msg) {
       clearEmpty();
       messageCount++;
+      // Always top-level so the card is not buried inside a collapsed process fold.
       const fold = processFold && processFold.wrap && processFold.wrap.isConnected ? processFold : null;
+      if (fold) {
+        fold.details.open = true;
+        refreshProcessSummary(fold, '等待你的选择…', true);
+      }
       const card = document.createElement('div');
-      card.className = fold ? 'fb-card' : 'msg fb-card';
+      card.className = 'msg fb-card';
       card.setAttribute('data-fb-id', msg.id);
       const eyebrow = document.createElement('div');
       eyebrow.className = 'fb-eyebrow';
@@ -2203,11 +2214,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       const hint = document.createElement('div');
       hint.className = 'fb-hint';
       hint.textContent = msg.kind === 'suggestion'
-        ? '发送后按你的选择继续；关闭则结束任务，不执行建议。'
-        : '发送后按你的选择继续；关闭则继续当前方案，不做额外扩展。';
+        ? '点「发送」按选择继续；点「关闭」会结束本轮且不执行该建议（不是稍后再说）。'
+        : '点「发送」按选择继续；点「关闭」则继续当前方案、不做额外扩展。';
       const actions = document.createElement('div');
       actions.className = 'fb-actions';
-      function settleLocal(status, selected, freeText, summary) {
+      function settleLocal(summary) {
         if (card.classList.contains('done')) return;
         card.classList.add('done');
         hint.textContent = summary;
@@ -2224,7 +2235,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         const summary = status === 'dismissed'
           ? (msg.kind === 'suggestion' ? '已关闭建议 · 结束任务' : '已关闭 · 继续当前方案')
           : ('已选择：' + (selected.length ? selected.join('、') : '（仅文字）'));
-        settleLocal(status, selected, freeText, summary);
+        settleLocal(summary);
         vscode.postMessage({
           type: 'userFeedbackResult',
           id: msg.id,
@@ -2240,7 +2251,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       bSend.addEventListener('click', () => finish('answered'));
       const bClose = document.createElement('button');
       bClose.type = 'button';
-      bClose.textContent = '关闭';
+      bClose.textContent = msg.kind === 'suggestion' ? '关闭并结束' : '关闭';
       bClose.addEventListener('click', () => finish('dismissed'));
       actions.appendChild(bSend);
       actions.appendChild(bClose);
@@ -2250,13 +2261,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       card.appendChild(free);
       card.appendChild(hint);
       card.appendChild(actions);
-      if (fold) {
-        fold.details.open = true;
-        fold.body.appendChild(card);
-        refreshProcessSummary(fold, '等待你的选择…', true);
-      } else {
-        thread.appendChild(card);
-      }
+      thread.appendChild(card);
       thread.scrollTop = thread.scrollHeight;
     }
 
@@ -2624,6 +2629,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           currentCard = null;
           currentBody = null;
           processFold = null;
+          // Show progress immediately while waiting on the first model round-trip.
+          const fold = ensureProcessFold();
+          fold.details.open = true;
+          refreshProcessSummary(fold, '正在思考 / 等待模型…', true);
+          break;
+        }
+        case 'progress': {
+          const fold = ensureProcessFold();
+          fold.details.open = true;
+          refreshProcessSummary(fold, msg.text || '处理中…', true);
+          thread.scrollTop = thread.scrollHeight;
           break;
         }
         case 'assistantDelta':
@@ -2658,7 +2674,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             el.classList.add('done');
             const h = el.querySelector('.fb-hint');
             if (h) {
-              if (msg.status === 'dismissed') {
+              if (msg.status === 'aborted') {
+                h.textContent = '已取消（停止生成）';
+              } else if (msg.status === 'dismissed') {
                 h.textContent = '已关闭';
               } else {
                 const sel = (msg.selected || []).join('、');

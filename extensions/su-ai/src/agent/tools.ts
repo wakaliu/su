@@ -35,6 +35,8 @@ export function resetTerminalSessionPermissions(): void {
 
 /** Marker: user dismissed a suggestion card — AgentRunner should end the turn. */
 export const USER_FEEDBACK_STOP = '[[SU_USER_FEEDBACK_STOP]]';
+/** Marker: Stop/Esc/session change aborted the card — AgentRunner should throw 已停止生成. */
+export const USER_FEEDBACK_ABORTED = '[[SU_USER_FEEDBACK_ABORTED]]';
 
 export type UserFeedbackKind = 'choice' | 'suggestion';
 
@@ -45,7 +47,8 @@ export type UserFeedbackRequest = {
 };
 
 export type UserFeedbackResult = {
-  status: 'answered' | 'dismissed';
+  /** answered = user sent; dismissed = user closed card; aborted = Stop/Esc/session change */
+  status: 'answered' | 'dismissed' | 'aborted';
   selected: string[];
   freeText: string;
 };
@@ -159,10 +162,11 @@ export function buildAgentTools(enableTerminal: boolean): AgentToolDef[] {
     function: {
       name: 'ask_user',
       description:
-        'Pause and show an in-chat feedback card (options + optional free text). Use for real branching choices or optional next-step suggestions (e.g. commit). ' +
-        'Complex or ambiguous tasks may call ask_user multiple times. ' +
-        'kind=choice: dismiss means continue current plan without expansions. kind=suggestion: dismiss means stop without doing the suggested work. ' +
-        'Do NOT use for routine edits, terminal (use run_terminal), or decisions you can make yourself; avoid spam.',
+        'Pause and show an in-chat feedback card (options + optional free text). ' +
+        'kind=choice: real branching alternatives while doing the user\'s requested work (dismiss = continue current plan, no expansions). ' +
+        'kind=suggestion: ONLY optional follow-ups AFTER meaningful progress (e.g. commit/push). Dismiss = stop without doing that suggestion. ' +
+        'NEVER use suggestion to ask permission to start work the user already requested — just start (or use choice for real forks). ' +
+        'Do NOT use for routine edits, terminal (use run_terminal), or decisions you can make yourself.',
       parameters: {
         type: 'object',
         properties: {
@@ -362,6 +366,14 @@ async function askUser(args: Record<string, unknown>): Promise<string> {
     } else {
       result = { status: 'answered', selected: [pick], freeText: '' };
     }
+  }
+
+  if (result.status === 'aborted') {
+    return (
+      `${USER_FEEDBACK_ABORTED}\n` +
+      'status=aborted\n' +
+      'User stopped generation (Esc/Stop) or switched session. Abort the turn.'
+    );
   }
 
   if (result.status === 'dismissed') {
