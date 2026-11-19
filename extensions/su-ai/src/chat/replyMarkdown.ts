@@ -6,7 +6,10 @@ export const SU_REPLY_FORMAT_HINT =
   'Format substantial answers like a polished IDE coding assistant (Cursor-style): ' +
   'lead with a short conclusion; use ## / ### section titles that stand out; keep paragraphs short; ' +
   'use bullets or numbered lists for steps; use Markdown pipe tables for comparisons, inventories, and structured facts; ' +
-  'put real code in fenced blocks with a language tag — never wrap the whole answer in one fence. Prefer structure over walls of text.';
+  'put real code in fenced blocks with a language tag — never wrap the whole answer in one fence. Prefer structure over walls of text. ' +
+  'Keep the visual icon habit: put a fitting emoji before major section titles and callouts ' +
+  '(examples: 🔬 analysis, 🗺️ roadmap/plan, ⚠️ warnings/notes, ▶️ next steps, ✅ done, ❌ problems). ' +
+  'Do not strip these icons when tightening structure — they are part of the desired style, not decoration to remove.';
 
 export function renderReplyMarkdown(source: string): string {
   const escape = (value: string): string => value.replace(/[&<>"']/g, (c) => ({

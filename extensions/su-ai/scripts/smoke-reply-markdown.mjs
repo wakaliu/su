@@ -39,7 +39,7 @@ if (typeof embedded !== 'function' || !injectHtml.includes('<table>')) {
   console.log('OK inject');
 }
 
-if (!SU_REPLY_FORMAT_HINT.includes('tables')) {
+if (!SU_REPLY_FORMAT_HINT.includes('tables') || !SU_REPLY_FORMAT_HINT.includes('emoji')) {
   console.log('FAIL hint');
   failed += 1;
 } else {
