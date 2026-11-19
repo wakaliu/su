@@ -30,8 +30,8 @@ export type AskEvent =
 export async function runAskWithTools(opts: AskRunOptions): Promise<void> {
   const tools = buildReadonlyTools();
   const cfg = vscode.workspace.getConfiguration('su');
-  // Cap Ask tool loops so a broad "介绍项目" cannot burn unbounded list/read rounds.
-  const maxSteps = Math.min(30, Math.max(1, cfg.get<number>('ask.maxSteps', 16) || 16));
+  // Soft cap for broad "介绍项目" style probes; default 100, configurable.
+  const maxSteps = Math.min(500, Math.max(1, cfg.get<number>('ask.maxSteps', 100) || 100));
 
   const systemParts = [
     'You are Su, a helpful coding assistant embedded in the su editor. Prefer Markdown. Reply in the user\'s language. ' +

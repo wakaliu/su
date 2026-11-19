@@ -34,7 +34,12 @@ export type AgentEvent =
  */
 export async function runAgent(opts: AgentRunOptions): Promise<void> {
   const cfg = vscode.workspace.getConfiguration('su');
-  const maxSteps = Math.min(30, Math.max(1, cfg.get<number>('agent.maxSteps', 12) || 12));
+  // 0 (default) = unlimited; positive values optionally cap a runaway tool loop.
+  const configuredSteps = cfg.get<number>('agent.maxSteps', 0);
+  const maxSteps =
+    !configuredSteps || configuredSteps <= 0
+      ? Number.POSITIVE_INFINITY
+      : Math.min(10_000, Math.max(1, configuredSteps));
   const enableTerminal = cfg.get<boolean>('agent.enableTerminal', true);
   const tools = buildAgentTools(enableTerminal);
 
@@ -130,6 +135,6 @@ export async function runAgent(opts: AgentRunOptions): Promise<void> {
 
   opts.onEvent({
     type: 'done',
-    summary: `已达最大工具步数（${maxSteps}）。可提高 su.agent.maxSteps 后重试。`,
+    summary: `已达最大工具步数（${maxSteps}）。可将 su.agent.maxSteps 设为 0 取消上限，或调高后重试。`,
   });
 }

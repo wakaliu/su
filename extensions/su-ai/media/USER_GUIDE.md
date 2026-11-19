@@ -75,7 +75,7 @@ su 使用**同一套** Base URL + API Key，可配置多个模型 id：
 ## 5. 使用 Chat（问答）
 
 1. `Ctrl+L` 打开右侧 **Su AI / Chat**。
-2. 底部 **Ask / Agent** pill 选 **Ask**（自动关联当前打开文件夹：目录/README/打开文件/git 分支；并可只读浏览文件）。Ask 单轮最多 `su.ask.maxSteps` 次 list/read（默认 16）；问「项目介绍」仍超限时可调高或切 Agent。助手答复支持醒目标题与 Markdown 表格（类似 Cursor）。
+2. 底部 **Ask / Agent** pill 选 **Ask**（自动关联当前打开文件夹：目录/README/打开文件/git 分支；并可只读浏览文件）。Ask 单轮最多 `su.ask.maxSteps` 次 list/read（默认 100）。**Agent** 默认不限制工具步数（`su.agent.maxSteps=0`；可用 Esc 停止）。助手答复支持醒目标题与 Markdown 表格（类似 Cursor）。
 3. 需要时点 **选区** chip，把编辑器选中代码一并发送；输入 `@` 可选文件/选区。
 4. Enter 发送，Shift+Enter 换行；生成中可点 **停止** 或按 `Esc`。
 5. 顶栏 **`+`** 新对话；**◷** 历史；**⋯** 含 Key / 中转 / 手册；**Agent ↗** 开 Agent Window。
@@ -99,7 +99,9 @@ su 使用**同一套** Base URL + API Key，可配置多个模型 id：
 
 相关设置：
 
-- `Su › Agent: Max Steps`：单轮最大工具步数  
+- `Su › Agent: Max Steps`：单轮最大工具步数（`0`=不限制，默认）  
+- `Su › Ask: Max Steps`：Ask 只读工具步数（默认 100）  
+
 - `Su › Agent: Enable Terminal`：是否允许 `run_terminal`（仍需确认）
 
 ---

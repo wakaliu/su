@@ -306,17 +306,17 @@
         },
         "su.ask.maxSteps": {
           "type": "number",
-          "default": 16,
+          "default": 100,
           "minimum": 1,
-          "maximum": 30,
+          "maximum": 500,
           "description": "Ask 单轮最大只读工具（list_dir / read_file）步数。"
         },
         "su.agent.maxSteps": {
           "type": "number",
-          "default": 12,
-          "minimum": 1,
-          "maximum": 30,
-          "description": "Agent 单轮最大工具调用步数。"
+          "default": 0,
+          "minimum": 0,
+          "maximum": 10000,
+          "description": "Agent 单轮最大工具调用步数。0 表示不限制（可用 Esc / 停止 中断）。"
         },
         "su.agent.enableTerminal": {
           "type": "boolean",
