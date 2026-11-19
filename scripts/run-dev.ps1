@@ -32,6 +32,7 @@ Push-Location $Vendor
 try {
   & (Join-Path $PSScriptRoot 'apply-branding.ps1')
   & (Join-Path $PSScriptRoot 'inject-extension.ps1')
+  & (Join-Path $PSScriptRoot 'apply-patches.ps1')
 
   if (-not (Test-Path 'node_modules')) {
     if (Test-Path 'package-lock.json') { Invoke-Native npm ci } else { Invoke-Native npm install }

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- [su] Canonical app mark: bold lowercase letters, legible at 16 px. -->
+  <rect x="1" y="1" width="62" height="62" rx="15" fill="#101827"/>
+  <g fill="none" stroke-width="5.75" stroke-linecap="round" stroke-linejoin="round">
+    <polyline stroke="#F3FAFF" points="27,23 18,23 14,26 14,29 17,32 24,33 28,36 28,40 24,43 14,43"/>
+    <polyline stroke="#62F4D0" points="37,23 37,38 39,42 43,43 47,42 50,38 50,23"/>
+    <polyline stroke="#62F4D0" points="50,38 50,43"/>
+  </g>
+</svg>

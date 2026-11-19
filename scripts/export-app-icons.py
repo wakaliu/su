@@ -1,119 +1,75 @@
 #!/usr/bin/env python3
-"""Export su app icon pack from the confirmed master PNG (A2 + larger glyph)."""
+"""Export the su icon pack from branding/icons/master/su.svg (requires Pillow)."""
 
 from __future__ import annotations
 
-import math
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-ROOT = Path(__file__).resolve().parents[1]
-MASTER = ROOT / "branding" / "icons" / "preview" / "su-icon-final-master.png"
-OUT = ROOT / "branding" / "icons"
-WIN32 = OUT / "win32"
-DARWIN = OUT / "darwin"
-PNG = OUT / "png"
-MASTER_OUT = OUT / "master"
+OUT = Path(__file__).resolve().parents[1] / "branding" / "icons"
+MASTER = OUT / "master" / "su.svg"
+ICO_SIZES = [16, 24, 32, 48, 64, 128, 256]
 
 
-def rounded_mask(size: int, radius_ratio: float = 0.22) -> Image.Image:
-    """Alpha mask for squircle-like rounded square used by Windows app tiles."""
-    mask = Image.new("L", (size, size), 0)
-    draw = ImageDraw.Draw(mask)
-    r = max(1, int(size * radius_ratio))
-    draw.rounded_rectangle((0, 0, size - 1, size - 1), radius=r, fill=255)
-    return mask
+def render_master(size: int = 1024) -> Image.Image:
+    """Rasterize our restricted SVG: one rounded rect and rounded polylines."""
+    svg = ET.parse(MASTER).getroot()
+    ns = "{http://www.w3.org/2000/svg}"
+    rect = svg.find(f"{ns}rect")
+    strokes = svg.find(f"{ns}g")
+    if rect is None or strokes is None:
+        raise ValueError("Expected a rounded rect and a group of polylines in su.svg")
+    scale = size / 64  # viewBox="0 0 64 64"
+    image = Image.new("RGBA", (size, size))
+    draw = ImageDraw.Draw(image)
+    x, y = (float(rect.attrib[k]) * scale for k in ("x", "y"))
+    w, h = (float(rect.attrib[k]) * scale for k in ("width", "height"))
+    draw.rounded_rectangle((x, y, x + w, y + h), radius=float(rect.attrib["rx"]) * scale,
+                           fill=rect.attrib["fill"])
+    width = round(float(strokes.attrib["stroke-width"]) * scale)
+    r = width / 2
+    for stroke in strokes:
+        if stroke.tag != f"{ns}polyline":
+            raise ValueError(f"Unsupported SVG glyph element: {stroke.tag}")
+        points = [tuple(float(v) * scale for v in point.split(","))
+                  for point in stroke.attrib["points"].split()]
+        color = stroke.attrib["stroke"]
+        draw.line(points, fill=color, width=width)
+        for px, py in points:  # round joins and caps, as in the SVG
+            draw.ellipse((px - r, py - r, px + r, py + r), fill=color)
+    return image
 
 
-def prepare_master(src: Path, canvas: int = 1024) -> Image.Image:
-    im = Image.open(src).convert("RGBA")
-    # Upscale/downscale to working canvas with high-quality filter.
-    im = im.resize((canvas, canvas), Image.Resampling.LANCZOS)
-    # Re-apply rounded alpha so exports stay consistent at every size.
-    rgb = Image.new("RGBA", (canvas, canvas), (0, 0, 0, 255))
-    rgb.paste(im, (0, 0), im)
-    mask = rounded_mask(canvas)
-    out = Image.new("RGBA", (canvas, canvas), (0, 0, 0, 0))
-    out.paste(rgb, (0, 0))
-    out.putalpha(mask)
-    return out
+def resized(image: Image.Image, size: int) -> Image.Image:
+    return image.resize((size, size), Image.Resampling.LANCZOS)
 
 
-def save_png(im: Image.Image, path: Path, size: int) -> None:
+def save_png(image: Image.Image, path: Path, size: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    resized = im.resize((size, size), Image.Resampling.LANCZOS)
-    resized.save(path, format="PNG", optimize=True)
-
-
-def save_ico(im: Image.Image, path: Path, sizes: list[int]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    # Pillow ICO writer expects the largest image + sizes= list.
-    largest = max(sizes)
-    base = im.resize((largest, largest), Image.Resampling.LANCZOS)
-    base.save(
-        path,
-        format="ICO",
-        sizes=[(s, s) for s in sorted(set(sizes))],
-    )
-
-
-def try_export_darwin_icns(im: Image.Image) -> None:
-    """Build branding/icons/darwin/code.icns when iconutil is available (macOS)."""
-    import platform
-    import shutil
-    import subprocess
-    import tempfile
-
-    if platform.system() != "Darwin" or not shutil.which("iconutil"):
-        print("Skip darwin/code.icns (iconutil only on macOS); CI build-mac may generate it.")
-        return
-
-    sizes = [16, 32, 64, 128, 256, 512, 1024]
-    with tempfile.TemporaryDirectory(prefix="su-iconset-") as tmp:
-        iconset = Path(tmp) / "code.iconset"
-        iconset.mkdir()
-        for s in sizes:
-            save_png(im, iconset / f"icon_{s}x{s}.png", s)
-            if s <= 512:
-                save_png(im, iconset / f"icon_{s}x{s}@2x.png", s * 2)
-        out = DARWIN / "code.icns"
-        DARWIN.mkdir(parents=True, exist_ok=True)
-        subprocess.run(
-            ["iconutil", "-c", "icns", str(iconset), "-o", str(out)],
-            check=True,
-        )
-        print(f"Wrote {out}")
+    resized(image, size).save(path, optimize=True)
 
 
 def main() -> None:
-    if not MASTER.exists():
-        raise SystemExit(f"Missing master: {MASTER}")
+    master = render_master(2048)
+    save_png(master, OUT / "master" / "su-1024.png", 1024)
+    for size in [16, 24, 32, 48, 64, 128, 256, 512, 1024]:
+        save_png(master, OUT / "png" / f"su-{size}.png", size)
 
-    master = prepare_master(MASTER, 1024)
-    MASTER_OUT.mkdir(parents=True, exist_ok=True)
-    master.save(MASTER_OUT / "su-1024.png", format="PNG", optimize=True)
+    win = OUT / "win32"
+    save_png(master, win / "code_150x150.png", 150)
+    save_png(master, win / "code_70x70.png", 70)
+    frames = [resized(master, size) for size in ICO_SIZES]
+    ico = win / "code.ico"
+    frames[-1].save(ico, sizes=[frame.size for frame in frames], append_images=frames[:-1])
+    (OUT / "su.ico").write_bytes(ico.read_bytes())
 
-    png_sizes = [16, 24, 32, 48, 64, 128, 256, 512, 1024]
-    for s in png_sizes:
-        save_png(master, PNG / f"su-{s}.png", s)
-
-    # VS Code / Electron Windows packaging names.
-    save_ico(master, WIN32 / "code.ico", [16, 24, 32, 48, 64, 128, 256])
-    save_png(master, WIN32 / "code_150x150.png", 150)
-    save_png(master, WIN32 / "code_70x70.png", 70)
-    # Also ship as su.ico for documentation / installers.
-    save_ico(master, OUT / "su.ico", [16, 24, 32, 48, 64, 128, 256])
-
-    # Darwin: keep a PNG staging copy; .icns is built on macOS via iconutil.
-    DARWIN.mkdir(parents=True, exist_ok=True)
-    save_png(master, DARWIN / "su-1024.png", 1024)
-    try_export_darwin_icns(master)
-
-    print(f"Exported icon pack -> {OUT}")
-    for p in sorted(OUT.rglob("*")):
-        if p.is_file() and p.suffix.lower() in {".png", ".ico", ".icns", ".jpg"}:
-            print(f"  {p.relative_to(OUT)} ({p.stat().st_size} bytes)")
+    darwin = OUT / "darwin"
+    save_png(master, darwin / "su-1024.png", 1024)
+    # Pillow writes the PNG-backed ICNS variants on any platform.
+    resized(master, 1024).save(darwin / "code.icns")
+    print(f"Exported su icons -> {OUT}")
 
 
 if __name__ == "__main__":

@@ -10,9 +10,9 @@
 |------|------|
 | `branding/product.overlay.json` | 合并进上游 `product.json` 的字段 |
 | `branding/version.json` | 产品版本 + GitHub 仓库（供更新检查） |
-| `branding/icons/` | 应用图标（小篆「溯」黑底蓝绿；见 `icons/README.md`） |
+| `branding/icons/` | 小写 `su` 字标；母版 `master/su.svg`，也用于工作台自绘标题栏（见 `icons/README.md`） |
 | `scripts/apply-branding.ps1` | 合并 overlay、复制 win32 / darwin 图标 |
-| `scripts/export-app-icons.py` | 从确认母版导出 PNG/ICO；macOS 上可生成 `darwin/code.icns` |
+| `scripts/export-app-icons.py` | 从 SVG 母版导出 PNG / ICO / ICNS |
 | `scripts/build-mac.ps1` / `package-mac.ps1` | macOS 双架构构建与未签名 DMG |
 | `scripts/inject-extension.ps1` | 注入 su-ai 并写入 `version.json` |
 

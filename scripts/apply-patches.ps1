@@ -152,4 +152,17 @@ if ($menusContent.Contains($suMenuMarker)) {
   Write-Host "==> applied patch 0003-menubar-help -> menusExtensionPoint.ts"
 }
 
+# --- 0004: replace the workbench title-bar mark with the su SVG ---
+# [su] Keep the existing .window-appicon layout and window-system behavior.
+$workbenchIcon = Join-Path $Vendor 'src/vs/workbench/browser/media/code-icon.svg'
+$suIcon = Join-Path $Root 'branding/icons/master/su.svg'
+if (-not (Test-Path -LiteralPath $workbenchIcon -PathType Leaf)) {
+  throw "Patch 0004 failed: expected upstream icon missing: $workbenchIcon"
+}
+$suIconContent = [System.IO.File]::ReadAllText($suIcon)
+if ([System.IO.File]::ReadAllText($workbenchIcon) -cne $suIconContent) {
+  Set-FileUtf8NoBom -Path $workbenchIcon -Content $suIconContent
+  Write-Host "==> applied patch 0004-workbench-icon -> code-icon.svg"
+}
+
 Write-Host "==> apply-patches done"
