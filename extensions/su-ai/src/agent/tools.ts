@@ -2,8 +2,36 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { DiffReviewService } from './diffReview';
 
-/** Session allowlist for confirmed read-only git commands (Cursor-like less friction). */
+export type TerminalPermissionDecision = 'allow_once' | 'allow_session' | 'deny';
+
+export type TerminalPermissionRequest = {
+  command: string;
+  readonlyGit: boolean;
+};
+
+/** Session allowlists after the user picks「总是允许」in the Chat permission card. */
+let allowTerminalSession = false;
 let allowReadonlyGitSession = false;
+
+type TerminalPermissionAsker = (
+  req: TerminalPermissionRequest,
+) => Promise<TerminalPermissionDecision>;
+
+/** In-chat asker (Cursor-like). Falls back to a modal if unset. */
+let terminalPermissionAsker: TerminalPermissionAsker | undefined;
+
+/**
+ * Registers the Chat/Agent Window handler for terminal permission cards.
+ */
+export function setTerminalPermissionAsker(asker: TerminalPermissionAsker | undefined): void {
+  terminalPermissionAsker = asker;
+}
+
+/** Clears session-level terminal allowlists (e.g. new chat). */
+export function resetTerminalSessionPermissions(): void {
+  allowTerminalSession = false;
+  allowReadonlyGitSession = false;
+}
 
 export interface AgentToolDef {
   type: 'function';
@@ -86,7 +114,7 @@ export function buildAgentTools(enableTerminal: boolean): AgentToolDef[] {
       function: {
         name: 'run_terminal',
         description:
-          'Run a shell command in the workspace folder. Always requires the user to confirm in the UI before running.',
+          'Run a shell command in the workspace folder. Requires user confirmation in Chat (Allow once / Always this session / Deny) before running, unless already allowed for the session.',
         parameters: {
           type: 'object',
           properties: {
@@ -241,6 +269,32 @@ function isReadonlyGitCommand(cmd: string): boolean {
   return /^\s*git(\s+-C\s+\S+)?\s+(status|branch|log|diff|show|rev-parse|remote)\b/i.test(cmd);
 }
 
+async function askTerminalPermission(cmd: string, readonlyGit: boolean): Promise<TerminalPermissionDecision> {
+  if (terminalPermissionAsker) {
+    return terminalPermissionAsker({ command: cmd, readonlyGit });
+  }
+  // Fallback when Chat UI is unavailable (should be rare).
+  const buttons = readonlyGit
+    ? (['允许一次', '本会话总是允许', '本会话允许只读 git', '拒绝'] as const)
+    : (['允许一次', '本会话总是允许', '拒绝'] as const);
+  const pick = await vscode.window.showWarningMessage(
+    `Su Agent 请求执行终端命令（工作区根目录）：\n\n${cmd}`,
+    { modal: true, detail: '写文件仍走 Keep/Reject；危险命令请勿轻易「总是允许」。' },
+    ...buttons,
+  );
+  if (pick === '本会话总是允许') {
+    return 'allow_session';
+  }
+  if (pick === '本会话允许只读 git') {
+    allowReadonlyGitSession = true;
+    return 'allow_once';
+  }
+  if (pick === '允许一次') {
+    return 'allow_once';
+  }
+  return 'deny';
+}
+
 async function runTerminal(command: string): Promise<string> {
   const cmd = command.trim();
   if (!cmd) {
@@ -252,19 +306,15 @@ async function runTerminal(command: string): Promise<string> {
   }
 
   const readonlyGit = isReadonlyGitCommand(cmd);
-  if (!(readonlyGit && allowReadonlyGitSession)) {
-    const buttons = readonlyGit
-      ? (['运行', '本会话允许同类 git 只读', '跳过'] as const)
-      : (['运行', '跳过'] as const);
-    const pick = await vscode.window.showWarningMessage(
-      `Su Agent 请求执行终端命令（工作区根目录）：\n\n${cmd}`,
-      { modal: true, detail: '可跳过。写文件仍走 Keep/Reject；危险命令请勿轻易允许。' },
-      ...buttons,
-    );
-    if (pick === '本会话允许同类 git 只读') {
-      allowReadonlyGitSession = true;
-    } else if (pick !== '运行') {
+  const alreadyAllowed =
+    allowTerminalSession || (readonlyGit && allowReadonlyGitSession);
+  if (!alreadyAllowed) {
+    const decision = await askTerminalPermission(cmd, readonlyGit);
+    if (decision === 'deny') {
       return 'SKIPPED: user declined terminal command';
+    }
+    if (decision === 'allow_session') {
+      allowTerminalSession = true;
     }
   }
 

@@ -10,6 +10,11 @@ import { promptAndSetApiKey } from '../secrets';
 import { runAgent } from '../agent/agentRunner';
 import { DiffReviewService } from '../agent/diffReview';
 import {
+  resetTerminalSessionPermissions,
+  setTerminalPermissionAsker,
+  type TerminalPermissionDecision,
+} from '../agent/tools';
+import {
   buildUserTurn,
   resolveDroppedUris,
   type ChatAttachment,
@@ -68,7 +73,12 @@ type WebviewToExt =
   | { type: 'attachActiveFile' }
   | { type: 'openAgentWindow' }
   | { type: 'openIdeWindow' }
-  | { type: 'openFolder'; forceNewWindow: boolean };
+  | { type: 'openFolder'; forceNewWindow: boolean }
+  | {
+      type: 'terminalPermissionResult';
+      id: string;
+      decision: TerminalPermissionDecision;
+    };
 
 type ExtToWebview =
   | {
@@ -107,6 +117,17 @@ type ExtToWebview =
   | { type: 'assistantDelta'; text: string }
   | { type: 'assistantDone' }
   | { type: 'tool'; text: string }
+  | {
+      type: 'terminalPermission';
+      id: string;
+      command: string;
+      readonlyGit: boolean;
+    }
+  | {
+      type: 'terminalPermissionSettled';
+      id: string;
+      decision: TerminalPermissionDecision;
+    }
   | { type: 'error'; message: string }
   | { type: 'stopped' }
   | {
@@ -148,10 +169,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   readonly diffs: DiffReviewService;
   /** Fired when pending diff count changes (status bar). */
   onPendingDiffsChanged?: (count: number) => void;
+  /** In-flight Chat permission cards waiting for Allow once / Always / Deny. */
+  private terminalPermWaiters = new Map<string, (d: TerminalPermissionDecision) => void>();
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.store = this.loadStore();
     this.diffs = new DiffReviewService();
+    setTerminalPermissionAsker((req) => this.askTerminalPermissionInChat(req.command, req.readonlyGit));
+    this.context.subscriptions.push({
+      dispose: () => setTerminalPermissionAsker(undefined),
+    });
     this.context.subscriptions.push(
       vscode.workspace.onDidChangeConfiguration((e) => {
         if (
@@ -163,6 +190,38 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         }
       }),
     );
+  }
+
+  private askTerminalPermissionInChat(
+    command: string,
+    readonlyGit: boolean,
+  ): Promise<TerminalPermissionDecision> {
+    const id = `term-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    return new Promise((resolve) => {
+      this.terminalPermWaiters.set(id, resolve);
+      this.post({ type: 'terminalPermission', id, command, readonlyGit });
+    });
+  }
+
+  private resolveTerminalPermission(id: string, decision: TerminalPermissionDecision): void {
+    const waiter = this.terminalPermWaiters.get(id);
+    if (!waiter) {
+      return;
+    }
+    this.terminalPermWaiters.delete(id);
+    waiter(decision);
+    // Sync both IDE Chat and Agent Window cards if both are open.
+    this.post({ type: 'terminalPermissionSettled', id, decision });
+  }
+
+  private rejectPendingTerminalPermissions(): void {
+    const ids = [...this.terminalPermWaiters.keys()];
+    for (const id of ids) {
+      const waiter = this.terminalPermWaiters.get(id);
+      this.terminalPermWaiters.delete(id);
+      waiter?.('deny');
+      this.post({ type: 'terminalPermissionSettled', id, decision: 'deny' });
+    }
   }
 
   /**
@@ -187,6 +246,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   /** Stops in-flight generation (Esc / stop button). */
   stopGeneration(): void {
+    this.rejectPendingTerminalPermissions();
     this.abort?.abort();
   }
 
@@ -442,6 +502,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       case 'openFolder':
         await this.openWorkspaceFolder(raw.forceNewWindow !== false);
         break;
+      case 'terminalPermissionResult':
+        this.resolveTerminalPermission(raw.id, raw.decision);
+        break;
       default:
         break;
     }
@@ -556,8 +619,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   private async newSession(): Promise<void> {
+    this.rejectPendingTerminalPermissions();
     this.abort?.abort();
     this.abort = undefined;
+    resetTerminalSessionPermissions();
     const mode = this.getMode();
     const current = this.activeSession;
     if (current.messages.length === 0) {
@@ -580,8 +645,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     if (!this.store.sessions.some((s) => s.id === id)) {
       return;
     }
+    this.rejectPendingTerminalPermissions();
     this.abort?.abort();
     this.abort = undefined;
+    resetTerminalSessionPermissions();
     this.store.activeId = id;
     const s = this.activeSession;
     await this.context.workspaceState.update(MODE_KEY, s.mode);
@@ -593,6 +660,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   private async deleteSession(id: string): Promise<void> {
     const wasActive = this.store.activeId === id;
+    this.rejectPendingTerminalPermissions();
     this.store.sessions = this.store.sessions.filter((s) => s.id !== id);
     if (!this.store.sessions.length) {
       const created = createEmptySession(this.getMode());
@@ -603,6 +671,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
     this.abort?.abort();
     this.abort = undefined;
+    if (wasActive) {
+      resetTerminalSessionPermissions();
+    }
     await this.persistStore();
     this.pushRestore();
     await this.pushStatus();
@@ -867,6 +938,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         });
       }
     } finally {
+      this.rejectPendingTerminalPermissions();
       this.abort = undefined;
       await this.setStreaming(false);
       this.emitDiffsChanged();
@@ -1024,22 +1096,30 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     .tool-fold { margin: 0; }
     .tool-fold > summary {
       list-style: none; cursor: pointer; user-select: none;
-      padding: 8px 10px; font-size: 12px; color: var(--muted);
-      display: flex; align-items: center; gap: 6px;
+      padding: 8px 10px; font-size: 12px; color: var(--fg);
+      display: flex; flex-direction: column; align-items: stretch; gap: 2px;
     }
     .tool-fold > summary::-webkit-details-marker { display: none; }
-    .tool-fold > summary::before {
+    .tool-fold-summary-main {
+      display: flex; align-items: center; gap: 6px; color: var(--fg); font-weight: 600;
+    }
+    .tool-fold-summary-main::before {
       content: '▸'; color: var(--muted); font-size: 10px; transition: transform .12s ease;
     }
-    .tool-fold[open] > summary::before { transform: rotate(90deg); }
-    .tool-fold > summary:hover { color: var(--fg); background: var(--list-hover); }
+    .tool-fold[open] > summary .tool-fold-summary-main::before { transform: rotate(90deg); }
+    .tool-fold > summary:hover { background: var(--list-hover); }
+    .tool-fold-live {
+      font-size: 11px; color: var(--muted); font-weight: 400; padding-left: 16px;
+    }
+    .tool-fold-live.busy { color: var(--link); }
     .tool-fold-body {
-      border-top: 1px solid var(--border); max-height: 280px; overflow: auto;
+      border-top: 1px solid var(--border); max-height: 320px; overflow: auto;
       padding: 6px 8px 8px; display: flex; flex-direction: column; gap: 8px;
     }
     .tool-step {
       border: 1px solid var(--border); border-radius: 6px; background: var(--code-bg); overflow: hidden;
     }
+    .tool-step[data-pending="1"] { border-color: color-mix(in srgb, var(--link) 45%, var(--border)); }
     .tool-step-label {
       font-size: 11px; color: var(--muted); padding: 4px 8px; border-bottom: 1px solid var(--border);
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -1048,6 +1128,28 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       margin: 0; padding: 6px 8px; font: 11px/1.4 var(--mono); white-space: pre-wrap; word-break: break-word;
       max-height: 160px; overflow: auto; color: var(--fg);
     }
+    .perm-card {
+      align-self: stretch; border: 1px solid color-mix(in srgb, var(--link) 40%, var(--border));
+      border-radius: 10px; padding: 10px 12px; background: color-mix(in srgb, var(--btn-bg) 14%, var(--bg));
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .perm-card .perm-title { font-size: 12px; font-weight: 650; color: var(--fg); }
+    .perm-card .perm-cmd {
+      margin: 0; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--code-bg); font: 11px/1.45 var(--mono); white-space: pre-wrap; word-break: break-word;
+      max-height: 140px; overflow: auto; color: var(--fg);
+    }
+    .perm-card .perm-hint { font-size: 11px; color: var(--muted); }
+    .perm-card .perm-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+    .perm-card .perm-actions button {
+      font-size: 12px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border);
+      background: var(--btn2-bg); color: var(--btn2-fg); cursor: pointer;
+    }
+    .perm-card .perm-actions button.primary {
+      background: var(--btn-bg); color: var(--btn-fg); border-color: transparent;
+    }
+    .perm-card.done { opacity: 0.85; }
+    .perm-card.done .perm-actions { display: none; }
     .diff-bar {
       display: none; gap: 6px; flex-wrap: wrap; padding: 6px 10px; border-top: 1px solid var(--border);
       background: color-mix(in srgb, var(--btn-bg) 12%, var(--bg));
@@ -1835,6 +1937,32 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       return { card: el, body: b };
     }
 
+    const TOOL_LABELS = {
+      list_dir: '浏览目录',
+      read_file: '读取文件',
+      write_file: '写入文件',
+      replace_in_file: '修改文件',
+      run_terminal: '运行终端',
+    };
+
+    function toolPretty(name) {
+      const key = String(name || '').split(/\\s|\\n/)[0].replace(/…$/, '');
+      return TOOL_LABELS[key] || key || '工具';
+    }
+
+    function refreshProcessSummary(fold, liveText, busy) {
+      const main = fold.summary.querySelector('.tool-fold-summary-main');
+      const live = fold.summary.querySelector('.tool-fold-live');
+      if (main) {
+        main.textContent = '处理过程 · ' + fold.count + ' 步' + (busy ? '' : '（点击展开）');
+      }
+      if (live) {
+        live.textContent = liveText || '';
+        live.classList.toggle('busy', !!busy);
+        live.style.display = liveText ? 'block' : 'none';
+      }
+    }
+
     function ensureProcessFold() {
       clearEmpty();
       if (processFold && processFold.wrap && processFold.wrap.isConnected) {
@@ -1845,8 +1973,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       wrap.className = 'msg tool-fold-wrap';
       const details = document.createElement('details');
       details.className = 'tool-fold';
+      details.open = true;
       const summary = document.createElement('summary');
-      summary.textContent = '处理过程（点击展开）';
+      const main = document.createElement('div');
+      main.className = 'tool-fold-summary-main';
+      main.textContent = '处理过程';
+      const live = document.createElement('div');
+      live.className = 'tool-fold-live';
+      summary.appendChild(main);
+      summary.appendChild(live);
       const body = document.createElement('div');
       body.className = 'tool-fold-body';
       details.appendChild(summary);
@@ -1859,9 +1994,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     function appendToolStep(text) {
       const fold = ensureProcessFold();
+      fold.details.open = true;
       const raw = String(text || '');
       const firstLine = (raw.split('\\n')[0] || 'TOOL').trim() || 'TOOL';
       const hasBody = raw.indexOf('\\n') >= 0;
+      const pretty = toolPretty(firstLine);
       const last = fold.body.lastElementChild;
       // Replace in-progress "name…" step with the completed result.
       if (last && last.getAttribute('data-pending') === '1' && hasBody) {
@@ -1869,28 +2006,97 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         const lab = last.querySelector('.tool-step-label');
         const pre = last.querySelector('pre');
         if (lab) {
-          lab.textContent = firstLine.length > 100 ? firstLine.slice(0, 100) + '…' : firstLine;
+          lab.textContent = pretty + (firstLine.length > 40 ? ' · ' + firstLine.slice(0, 60) + '…' : '');
           lab.title = firstLine;
         }
         if (pre) pre.textContent = raw;
-        fold.summary.textContent = '处理过程 · ' + fold.count + ' 步（点击展开）';
+        refreshProcessSummary(fold, '已完成 ' + pretty + ' · 共 ' + fold.count + ' 步', true);
         thread.scrollTop = thread.scrollHeight;
         return;
       }
       fold.count += 1;
-      fold.summary.textContent = '处理过程 · ' + fold.count + ' 步（点击展开）';
       const step = document.createElement('div');
       step.className = 'tool-step';
       if (!hasBody) step.setAttribute('data-pending', '1');
       const label = document.createElement('div');
       label.className = 'tool-step-label';
-      label.textContent = firstLine.length > 100 ? firstLine.slice(0, 100) + '…' : firstLine;
+      label.textContent = (!hasBody ? '⏳ ' : '✓ ') + pretty;
       label.title = firstLine;
       const pre = document.createElement('pre');
-      pre.textContent = raw;
+      pre.textContent = hasBody ? raw : '进行中…';
       step.appendChild(label);
       step.appendChild(pre);
       fold.body.appendChild(step);
+      refreshProcessSummary(
+        fold,
+        (!hasBody ? '正在' : '刚完成') + pretty + ' · 共 ' + fold.count + ' 步',
+        !hasBody || streaming,
+      );
+      thread.scrollTop = thread.scrollHeight;
+    }
+
+    function showTerminalPermission(msg) {
+      clearEmpty();
+      messageCount++;
+      const fold = processFold && processFold.wrap && processFold.wrap.isConnected ? processFold : null;
+      const card = document.createElement('div');
+      card.className = fold ? 'perm-card' : 'msg perm-card';
+      card.setAttribute('data-perm-id', msg.id);
+      const title = document.createElement('div');
+      title.className = 'perm-title';
+      title.textContent = '⚠️ 请求运行终端命令';
+      const cmd = document.createElement('pre');
+      cmd.className = 'perm-cmd';
+      cmd.textContent = msg.command || '';
+      const hint = document.createElement('div');
+      hint.className = 'perm-hint';
+      hint.textContent = msg.readonlyGit
+        ? '只读 git 类命令。可选「本会话总是允许」后本会话内终端不再询问。写文件仍走 Keep/Reject。'
+        : '可选「本会话总是允许」后本会话内终端命令不再询问。危险命令请谨慎；写文件仍走 Keep/Reject。';
+      const actions = document.createElement('div');
+      actions.className = 'perm-actions';
+      const decisionLabel = {
+        allow_session: '本会话总是允许',
+        allow_once: '允许一次',
+        deny: '拒绝',
+      };
+      function settleCard(decision) {
+        if (card.classList.contains('done')) return;
+        card.classList.add('done');
+        hint.textContent = '已选择：' + (decisionLabel[decision] || decision);
+        if (fold) refreshProcessSummary(fold, '终端授权：' + (decisionLabel[decision] || decision), true);
+      }
+      function finish(decision) {
+        settleCard(decision);
+        vscode.postMessage({ type: 'terminalPermissionResult', id: msg.id, decision: decision });
+      }
+      const bAlways = document.createElement('button');
+      bAlways.type = 'button';
+      bAlways.className = 'primary';
+      bAlways.textContent = '本会话总是允许';
+      bAlways.addEventListener('click', () => finish('allow_session'));
+      const bOnce = document.createElement('button');
+      bOnce.type = 'button';
+      bOnce.textContent = '允许一次';
+      bOnce.addEventListener('click', () => finish('allow_once'));
+      const bDeny = document.createElement('button');
+      bDeny.type = 'button';
+      bDeny.textContent = '拒绝';
+      bDeny.addEventListener('click', () => finish('deny'));
+      actions.appendChild(bAlways);
+      actions.appendChild(bOnce);
+      actions.appendChild(bDeny);
+      card.appendChild(title);
+      card.appendChild(cmd);
+      card.appendChild(hint);
+      card.appendChild(actions);
+      if (fold) {
+        fold.details.open = true;
+        fold.body.appendChild(card);
+        refreshProcessSummary(fold, '等待终端授权…', true);
+      } else {
+        thread.appendChild(card);
+      }
       thread.scrollTop = thread.scrollHeight;
     }
 
@@ -1904,6 +2110,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
 
     function finishAssistantMarkdown() {
+      if (processFold && processFold.wrap && processFold.wrap.isConnected) {
+        processFold.details.open = false;
+        refreshProcessSummary(processFold, '共 ' + processFold.count + ' 步 · 点击展开详情', false);
+      }
       if (!currentCard || !currentBody) {
         processFold = null;
         return;
@@ -2201,6 +2411,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         case 'tool':
           appendToolStep(msg.text || '');
           break;
+        case 'terminalPermission':
+          showTerminalPermission(msg);
+          break;
+        case 'terminalPermissionSettled': {
+          const el = thread.querySelector('[data-perm-id="' + msg.id + '"]');
+          if (el && !el.classList.contains('done')) {
+            el.classList.add('done');
+            const h = el.querySelector('.perm-hint');
+            const labels = { allow_session: '本会话总是允许', allow_once: '允许一次', deny: '拒绝' };
+            if (h) h.textContent = '已选择：' + (labels[msg.decision] || msg.decision);
+          }
+          break;
+        }
         case 'assistantDone':
         case 'stopped':
           finishAssistantMarkdown();

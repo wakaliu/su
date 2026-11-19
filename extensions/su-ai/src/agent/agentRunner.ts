@@ -48,7 +48,7 @@ export async function runAgent(opts: AgentRunOptions): Promise<void> {
       'Prefer replace_in_file for small edits. After tools finish, summarize what you changed. ' +
       'You may receive images in the user message; read them (UI screenshots, error dialogs, diagrams) and use that information when planning tool calls. ' +
       'A read-only workspace snapshot (git branches/paths) may be injected — use it first for questions like "current branch". ' +
-      'If you need a live check, call run_terminal (the user will see a permission dialog; read-only git may be allowed for the rest of the session). ' +
+      'If you need a live check, call run_terminal (the user confirms in Chat: Allow once / Always this session / Deny). ' +
       'Reply in the user\'s language. Do not claim you lack filesystem access or that you ran commands the user skipped. ' +
       SU_REPLY_FORMAT_HINT +
       ' After tools finish, end with a brief summary of changes and any verification or next steps.',

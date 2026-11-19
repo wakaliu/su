@@ -21,7 +21,7 @@
 | `extensions/su-ai/src/chat/atMentions.ts` | `@` 引用候选 |
 | `extensions/su-ai/src/ghostText.ts` | Ghost Text |
 | `extensions/su-ai/src/agent/agentRunner.ts` | Agent 工具循环 |
-| `extensions/su-ai/src/agent/tools.ts` | 工作区工具（+ 确认后终端） |
+| `extensions/su-ai/src/agent/tools.ts` | 工作区工具；终端对话区授权（一次/本会话总是/拒绝） |
 | `extensions/su-ai/src/agent/diffReview.ts` | Keep / Reject |
 | `extensions/su-ai/src/workbench.ts` | Sessions 窗跳回经典编辑器 |
 | `extensions/su-ai/src/config.ts` | 配置 / 多模型目录 / Auto 解析 |
@@ -36,7 +36,8 @@
 - **Agent Window**：独立 OS 窗口（`su.openAgentWindow` → `moveEditorToNewWindow`）；顶栏「IDE ↗」切回；与侧栏共用会话/工作区
 - 换项目：`su.openFolderNewWindow` / `su.openFolderCurrentWindow`（Chat ⋯ 菜单）；无文件夹可纯聊天
 - 入口：Chat 顶栏「Agent ↗」、状态栏、命令面板、帮助菜单 Su
-- v0.5 能力保留：拖图/文件、/ Skills、@、Rules、工作区快照、Ask 只读工具、过程折叠
+- v0.5 能力保留：拖图/文件、/ Skills、@、Rules、工作区快照、Ask 只读工具
+- Agent：**处理过程**进度默认展开；终端在对话区授权（允许一次 / 本会话总是允许 / 拒绝），不再弹系统模态框
 - 验收：[docs/acceptance/v0.6.md](../acceptance/v0.6.md)；v0.5 见 [v0.5.md](../acceptance/v0.5.md)
 - 产品版本见 `branding/version.json`
 
