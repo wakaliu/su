@@ -67,7 +67,8 @@ type WebviewToExt =
   | { type: 'pickFiles' }
   | { type: 'attachActiveFile' }
   | { type: 'openAgentWindow' }
-  | { type: 'openIdeWindow' };
+  | { type: 'openIdeWindow' }
+  | { type: 'openFolder'; forceNewWindow: boolean };
 
 type ExtToWebview =
   | {
@@ -82,6 +83,8 @@ type ExtToWebview =
       mode: ChatMode;
       sessionTitle: string;
       sessionId: string;
+      hasWorkspace: boolean;
+      workspaceLabel: string;
     }
   | {
       type: 'sessions';
@@ -436,6 +439,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       case 'openIdeWindow':
         await this.openIdeWindow();
         break;
+      case 'openFolder':
+        await this.openWorkspaceFolder(raw.forceNewWindow !== false);
+        break;
       default:
         break;
     }
@@ -622,6 +628,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const modelPick = this.getModelPick();
     const activeModel = resolveActiveModel(modelPick, cfg);
     const s = this.activeSession;
+    const folders = vscode.workspace.workspaceFolders || [];
+    const workspaceLabel = folders.length
+      ? folders.map((f) => f.name).join(', ')
+      : '（未打开文件夹）';
     this.emitDiffsChanged();
     this.post({
       type: 'status',
@@ -635,7 +645,30 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       mode: this.getMode(),
       sessionTitle: s.title,
       sessionId: s.id,
+      hasWorkspace: folders.length > 0,
+      workspaceLabel,
     });
+  }
+
+  /**
+   * Pick a folder and open it in a new OS window or replace the current window workspace.
+   * Agent Window shares the IDE workspace; a different project needs a new window (or replace).
+   */
+  async openWorkspaceFolder(forceNewWindow: boolean): Promise<void> {
+    const uris = await vscode.window.showOpenDialog({
+      canSelectFiles: false,
+      canSelectFolders: true,
+      canSelectMany: false,
+      openLabel: forceNewWindow ? '在新窗口打开' : '打开（替换当前项目）',
+      title: forceNewWindow
+        ? '选择项目文件夹 — 将在新的 su 窗口打开'
+        : '选择项目文件夹 — 将替换当前窗口工作区',
+    });
+    const folder = uris?.[0];
+    if (!folder) {
+      return;
+    }
+    await vscode.commands.executeCommand('vscode.openFolder', folder, forceNewWindow);
   }
 
   private async handleSend(
@@ -1180,6 +1213,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       <div class="menu-wrap">
         <button type="button" class="icon-btn" id="btnMore" title="更多">⋯</button>
         <div class="menu-pop" id="moreMenu">
+          <button type="button" id="mOpenFolderNew">打开文件夹（新窗口）</button>
+          <button type="button" id="mOpenFolderHere">打开文件夹（当前窗口）</button>
           <button type="button" id="mModels">模型列表</button>
           <button type="button" id="mKey">设置 API Key</button>
           <button type="button" id="mSettings">中转 / 默认模型</button>
@@ -1703,19 +1738,30 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       pillAgent.disabled = on;
     }
 
+    let hasWorkspace = true;
+
     function showEmpty() {
       thread.innerHTML = '';
       const el = document.createElement('div');
       el.className = 'empty';
       el.id = 'emptyState';
+      const projectHint = hasWorkspace
+        ? '<li>顶栏 <strong>+</strong> 可开空聊天；⋯ 可换项目文件夹</li>'
+        : '<li><a data-act="folderNew">打开文件夹（新窗口）</a> 绑定项目，或先纯聊天</li>' +
+          '<li><a data-act="folderHere">打开文件夹（当前窗口）</a></li>';
       el.innerHTML = '<h3>开始使用 Su</h3><ol>' +
         '<li><a data-act="key">设置 API Key</a></li>' +
-        '<li>在下方输入问题并发送</li>' +
+        '<li>在下方输入问题并发送（无项目也可闲聊）</li>' +
+        projectHint +
         '<li>需要改文件时切到 <strong>Agent</strong></li>' +
         '<li><a data-act="manual">打开用户手册</a></li></ol>';
       thread.appendChild(el);
       el.querySelector('[data-act="key"]').addEventListener('click', () => vscode.postMessage({ type: 'setApiKey' }));
       el.querySelector('[data-act="manual"]').addEventListener('click', () => vscode.postMessage({ type: 'openUserManual' }));
+      const fn = el.querySelector('[data-act="folderNew"]');
+      if (fn) fn.addEventListener('click', () => vscode.postMessage({ type: 'openFolder', forceNewWindow: true }));
+      const fh = el.querySelector('[data-act="folderHere"]');
+      if (fh) fh.addEventListener('click', () => vscode.postMessage({ type: 'openFolder', forceNewWindow: false }));
       messageCount = 0;
     }
 
@@ -1968,6 +2014,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       moreMenu.classList.remove('open');
       if (!slashMenu.contains(e.target) && e.target !== input) closeSlash();
     });
+    document.getElementById('mOpenFolderNew').addEventListener('click', () => {
+      moreMenu.classList.remove('open');
+      vscode.postMessage({ type: 'openFolder', forceNewWindow: true });
+    });
+    document.getElementById('mOpenFolderHere').addEventListener('click', () => {
+      moreMenu.classList.remove('open');
+      vscode.postMessage({ type: 'openFolder', forceNewWindow: false });
+    });
     document.getElementById('mModels').addEventListener('click', () => vscode.postMessage({ type: 'editModels' }));
     document.getElementById('mKey').addEventListener('click', () => vscode.postMessage({ type: 'setApiKey' }));
     document.getElementById('mSettings').addEventListener('click', () => vscode.postMessage({ type: 'openSettings' }));
@@ -2099,9 +2153,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           setMode(msg.mode || 'chat');
           if (msg.sessionTitle) sessionTitle.textContent = msg.sessionTitle;
           updateDiffUi(msg.pendingDiffs);
+          hasWorkspace = msg.hasWorkspace !== false;
           meta.textContent = (msg.hasKey ? 'Key ✓' : 'Key ✗')
             + ' · ' + (msg.activeModel || msg.model)
             + (msg.modelPick === 'auto' ? ' (Auto)' : '')
+            + ' · ' + (msg.workspaceLabel || '')
             + ' · ' + msg.baseUrl;
           break;
         case 'sessions':

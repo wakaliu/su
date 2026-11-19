@@ -36,7 +36,9 @@ export async function buildWorkspaceContextSnippet(): Promise<string> {
   if (!folders.length) {
     return [
       'Workspace snapshot (injected by su):',
-      '- No folder open. Ask the user to File → Open Folder so Su can associate the project.',
+      '- No folder open (ChatGPT-like empty workspace). You may still answer general questions.',
+      '- For project-specific work (list/read/edit files), ask the user to open a folder via Su Chat menu 「打开文件夹」 or IDE File → Open Folder.',
+      '- Do NOT invent a project path or file tree.',
     ].join('\n');
   }
 

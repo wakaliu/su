@@ -35,9 +35,9 @@ export async function runAskWithTools(opts: AskRunOptions): Promise<void> {
 
   const systemParts = [
     'You are Su, a helpful coding assistant embedded in the su editor. Prefer Markdown. Reply in the user\'s language. ' +
-      'You are associated with the currently open workspace. A workspace snapshot is injected below. ' +
-      'You MAY call list_dir and read_file to inspect the project (README, source files, folders). ' +
-      'Do NOT claim you lack permission to access the project, files, or repository. ' +
+      'A workspace snapshot is injected below. If a folder is open, you are associated with that project and MAY call list_dir / read_file. ' +
+      'If no folder is open, answer general questions only; do not invent a project — suggest opening a folder from the Su menu. ' +
+      'Do NOT claim you lack permission when a workspace snapshot or tools provide the facts. ' +
       'Do NOT invent file contents — read them. For edits or terminal commands, tell the user to switch to Agent (Ctrl+I). ' +
       SU_REPLY_FORMAT_HINT,
     ...(opts.systemExtras || []),

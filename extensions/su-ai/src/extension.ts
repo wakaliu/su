@@ -101,6 +101,11 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand('su.openAgentWindow', () => chat.openAgentWindow()),
     vscode.commands.registerCommand('su.openIdeWindow', () => chat.openIdeWindow()),
+    vscode.commands.registerCommand('su.openFolderNewWindow', () => chat.openWorkspaceFolder(true)),
+    vscode.commands.registerCommand('su.openFolderCurrentWindow', () => chat.openWorkspaceFolder(false)),
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      void chat.refreshStatus();
+    }),
   );
 
   const agentWindowStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 98);
