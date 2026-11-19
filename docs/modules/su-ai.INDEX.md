@@ -38,7 +38,7 @@
 - 入口：Chat 顶栏「Agent ↗」、状态栏、命令面板、帮助菜单 Su
 - v0.5 能力保留：拖图/文件、/ Skills、@、Rules、工作区快照、Ask 只读工具
 - Agent：**处理过程**进度默认展开；终端在对话区授权（允许一次 / 本会话总是允许 / 拒绝）
-- Agent：`ask_user` 低频反馈卡（抉择关闭=继续不扩展；建议关闭=结束任务）
+- Agent：`ask_user` 反馈卡（抉择关闭=继续不扩展；建议关闭=结束任务；复杂任务可多次）
 - 验收：[docs/acceptance/v0.6.md](../acceptance/v0.6.md)；v0.5 见 [v0.5.md](../acceptance/v0.5.md)
 - 产品版本见 `branding/version.json`
 

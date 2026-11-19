@@ -159,9 +159,10 @@ export function buildAgentTools(enableTerminal: boolean): AgentToolDef[] {
     function: {
       name: 'ask_user',
       description:
-        'Pause and show an in-chat feedback card (options + optional free text). Use SPARINGLY — only for real branching choices or optional next-step suggestions (e.g. commit). ' +
+        'Pause and show an in-chat feedback card (options + optional free text). Use for real branching choices or optional next-step suggestions (e.g. commit). ' +
+        'Complex or ambiguous tasks may call ask_user multiple times. ' +
         'kind=choice: dismiss means continue current plan without expansions. kind=suggestion: dismiss means stop without doing the suggested work. ' +
-        'Do NOT use for routine edits, terminal (use run_terminal), or decisions you can make yourself.',
+        'Do NOT use for routine edits, terminal (use run_terminal), or decisions you can make yourself; avoid spam.',
       parameters: {
         type: 'object',
         properties: {
