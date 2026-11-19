@@ -851,7 +851,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const csp = [
       `default-src 'none'`,
       `style-src ${webview.cspSource} 'unsafe-inline'`,
-      `script-src 'nonce-${nonce}'`,
+      // unsafe-eval: replyMarkdown is injected via new Function (shared host/webview renderer).
+      `script-src 'nonce-${nonce}' 'unsafe-eval'`,
       // data: needed for dragged image thumbnails in the composer
       `img-src ${webview.cspSource} data: blob:`,
     ].join('; ');
@@ -1656,13 +1657,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
 
-    const __suRenderReplyMarkdown = new Function('return (' + ${mdRendererJson} + ')')();
+    // CSP must allow unsafe-eval for this inject; wrap so a failure never bricks the whole Chat UI.
+    let __suRenderReplyMarkdown = null;
+    try {
+      __suRenderReplyMarkdown = new Function('return (' + ${mdRendererJson} + ')')();
+    } catch (err) {
+      console.warn('[su-chat] replyMarkdown inject failed', err);
+    }
     function renderMarkdown(src) {
       try {
-        return __suRenderReplyMarkdown(src || '');
-      } catch (err) {
-        return '<p>' + escapeHtml(String(src || '')) + '</p>';
-      }
+        if (typeof __suRenderReplyMarkdown === 'function') {
+          return __suRenderReplyMarkdown(src || '');
+        }
+      } catch (err) { /* fall through */ }
+      return '<p>' + escapeHtml(String(src || '')) + '</p>';
     }
 
     function wireCodeActions(root) {
@@ -2053,13 +2061,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         e.preventDefault();
       }
     });
-    imgLightbox.addEventListener('click', (e) => {
-      if (e.target === imgLightbox || e.target === imgLightboxImg) closeLightbox();
-    });
-    imgLightboxClose.addEventListener('click', (e) => {
-      e.stopPropagation();
-      closeLightbox();
-    });
+    if (imgLightbox) {
+      imgLightbox.addEventListener('click', (e) => {
+        if (e.target === imgLightbox || e.target === imgLightboxImg) closeLightbox();
+      });
+    }
+    if (imgLightboxClose) {
+      imgLightboxClose.addEventListener('click', (e) => {
+        e.stopPropagation();
+        closeLightbox();
+      });
+    }
     vscode.postMessage({ type: 'listSkills' });
     thread.addEventListener('click', (e) => {
       const a = e.target.closest && e.target.closest('a');
