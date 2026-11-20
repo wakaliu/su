@@ -2075,6 +2075,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       replace_in_file: '修改文件',
       run_terminal: '运行终端',
       ask_user: '等待你的选择',
+      thinking: '思考中',
     };
 
     function toolPretty(name) {
@@ -2131,6 +2132,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       const firstLine = (raw.split('\\n')[0] || 'TOOL').trim() || 'TOOL';
       const hasBody = raw.indexOf('\\n') >= 0;
       const pretty = toolPretty(firstLine);
+      // Real tools replace the thinking placeholder so the fold does not stack empty waits.
+      if (!/^thinking/i.test(firstLine)) {
+        Array.prototype.slice.call(fold.body.querySelectorAll('.tool-step[data-pending="1"]')).forEach((el) => {
+          const lab = el.querySelector('.tool-step-label');
+          if (lab && /思考中|thinking/i.test(lab.textContent || '')) el.remove();
+        });
+      }
       const last = fold.body.lastElementChild;
       // Replace in-progress "name…" step with the completed result.
       if (last && last.getAttribute('data-pending') === '1' && hasBody) {
@@ -2630,14 +2638,27 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           currentBody = null;
           processFold = null;
           // Show progress immediately while waiting on the first model round-trip.
+          appendToolStep('thinking…');
           const fold = ensureProcessFold();
           fold.details.open = true;
           refreshProcessSummary(fold, '正在思考 / 等待模型…', true);
+          thread.scrollTop = thread.scrollHeight;
           break;
         }
         case 'progress': {
           const fold = ensureProcessFold();
           fold.details.open = true;
+          // Keep a visible pending step, not only the summary live line.
+          const last = fold.body.lastElementChild;
+          if (last && last.getAttribute('data-pending') === '1') {
+            const pre = last.querySelector('pre');
+            if (pre) pre.textContent = msg.text || '处理中…';
+          } else {
+            appendToolStep('thinking…');
+            const pending = fold.body.lastElementChild;
+            const pre = pending && pending.querySelector('pre');
+            if (pre) pre.textContent = msg.text || '处理中…';
+          }
           refreshProcessSummary(fold, msg.text || '处理中…', true);
           thread.scrollTop = thread.scrollHeight;
           break;

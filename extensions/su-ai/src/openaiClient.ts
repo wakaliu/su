@@ -64,6 +64,25 @@ export function joinApiUrl(baseUrl: string, pathPart: string): string {
 }
 
 /**
+ * Maps fetch AbortError to用户停止 vs 请求超时 (timer abort must not look like Esc).
+ */
+function throwIfAborted(
+  e: unknown,
+  opts: { signal?: AbortSignal; timeoutMs: number; timedOut: () => boolean },
+): never {
+  if (opts.signal?.aborted) {
+    throw new Error('已停止生成');
+  }
+  if (opts.timedOut() || (e instanceof Error && e.name === 'AbortError')) {
+    const sec = Math.max(1, Math.round(opts.timeoutMs / 1000));
+    throw new Error(
+      `请求超时（${sec}s）。请检查中转/网络，或增大设置 su.timeoutMs 后重试。`,
+    );
+  }
+  throw e instanceof Error ? e : new Error(String(e));
+}
+
+/**
  * Non-streaming chat.completions — used for short Ghost Text completions.
  */
 export async function completeChat(opts: CompleteChatOptions): Promise<string> {
@@ -78,7 +97,12 @@ export async function completeChat(opts: CompleteChatOptions): Promise<string> {
   const controller = new AbortController();
   const onAbort = (): void => controller.abort();
   opts.signal?.addEventListener('abort', onAbort, { once: true });
-  const timer = setTimeout(() => controller.abort(), Math.max(1000, opts.timeoutMs));
+  const timeoutMs = Math.max(1000, opts.timeoutMs);
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
 
   try {
     const res = await fetch(url, {
@@ -111,10 +135,7 @@ export async function completeChat(opts: CompleteChatOptions): Promise<string> {
     }
     return (json.choices?.[0]?.message?.content || '').trimEnd();
   } catch (e) {
-    if (opts.signal?.aborted || (e instanceof Error && e.name === 'AbortError')) {
-      throw new Error('已停止生成');
-    }
-    throw e instanceof Error ? e : new Error(String(e));
+    return throwIfAborted(e, { signal: opts.signal, timeoutMs, timedOut: () => timedOut });
   } finally {
     clearTimeout(timer);
     opts.signal?.removeEventListener('abort', onAbort);
@@ -136,7 +157,12 @@ export async function completeChatWithTools(opts: ToolChatOptions): Promise<Tool
   const controller = new AbortController();
   const onAbort = (): void => controller.abort();
   opts.signal?.addEventListener('abort', onAbort, { once: true });
-  const timer = setTimeout(() => controller.abort(), Math.max(1000, opts.timeoutMs));
+  const timeoutMs = Math.max(1000, opts.timeoutMs);
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
 
   try {
     const res = await fetch(url, {
@@ -177,10 +203,7 @@ export async function completeChatWithTools(opts: ToolChatOptions): Promise<Tool
       finish_reason: json.choices?.[0]?.finish_reason,
     };
   } catch (e) {
-    if (opts.signal?.aborted || (e instanceof Error && e.name === 'AbortError')) {
-      throw new Error('已停止生成');
-    }
-    throw e instanceof Error ? e : new Error(String(e));
+    return throwIfAborted(e, { signal: opts.signal, timeoutMs, timedOut: () => timedOut });
   } finally {
     clearTimeout(timer);
     opts.signal?.removeEventListener('abort', onAbort);
@@ -203,8 +226,12 @@ export async function streamChatCompletion(opts: StreamChatOptions): Promise<voi
   const controller = new AbortController();
   const onAbort = (): void => controller.abort();
   opts.signal?.addEventListener('abort', onAbort, { once: true });
-
-  const timer = setTimeout(() => controller.abort(), Math.max(1000, opts.timeoutMs));
+  const timeoutMs = Math.max(1000, opts.timeoutMs);
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
 
   try {
     const res = await fetch(url, {
@@ -276,10 +303,7 @@ export async function streamChatCompletion(opts: StreamChatOptions): Promise<voi
       }
     }
   } catch (e) {
-    if (opts.signal?.aborted || (e instanceof Error && e.name === 'AbortError')) {
-      throw new Error('已停止生成');
-    }
-    throw e instanceof Error ? e : new Error(String(e));
+    return throwIfAborted(e, { signal: opts.signal, timeoutMs, timedOut: () => timedOut });
   } finally {
     clearTimeout(timer);
     opts.signal?.removeEventListener('abort', onAbort);

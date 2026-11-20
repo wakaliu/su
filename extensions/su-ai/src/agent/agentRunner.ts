@@ -90,20 +90,39 @@ export async function runAgent(opts: AgentRunOptions): Promise<void> {
       throw new Error('已停止生成');
     }
 
+    const startedAt = Date.now();
     opts.onEvent({
       type: 'progress',
       text: step === 0 ? '正在思考 / 等待模型…' : `继续推理 · 第 ${step + 1} 轮…`,
     });
+    const heartbeat = setInterval(() => {
+      if (opts.signal?.aborted) {
+        return;
+      }
+      const sec = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
+      opts.onEvent({
+        type: 'progress',
+        text:
+          step === 0
+            ? `正在思考 / 等待模型… 已等待 ${sec}s`
+            : `继续推理 · 第 ${step + 1} 轮… 已等待 ${sec}s`,
+      });
+    }, 5000);
 
-    const result = await completeChatWithTools({
-      baseUrl: opts.baseUrl,
-      apiKey: opts.apiKey,
-      model: opts.model,
-      timeoutMs,
-      messages,
-      tools,
-      signal: opts.signal,
-    });
+    let result: Awaited<ReturnType<typeof completeChatWithTools>>;
+    try {
+      result = await completeChatWithTools({
+        baseUrl: opts.baseUrl,
+        apiKey: opts.apiKey,
+        model: opts.model,
+        timeoutMs,
+        messages,
+        tools,
+        signal: opts.signal,
+      });
+    } finally {
+      clearInterval(heartbeat);
+    }
 
     if (result.tool_calls && result.tool_calls.length > 0) {
       messages.push({
