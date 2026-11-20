@@ -229,33 +229,73 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     readonlyGit: boolean,
   ): Promise<TerminalPermissionDecision> {
     const id = `term-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const preview = command.length > 80 ? `${command.slice(0, 80)}…` : command;
+    const preview = command.length > 120 ? `${command.slice(0, 120)}…` : command;
     this.post({
       type: 'progress',
       text: `等待你授权终端命令：${preview}`,
     });
-    void vscode.window.showInformationMessage(
-      'Su Agent 等待你在 Chat 中授权终端命令（允许一次 / 本会话总是允许 / 拒绝）。',
-    );
+    // Ensure a Chat surface is visible — Agent Window if open, else side-bar Chat.
+    void (async () => {
+      try {
+        if (this.agentPanel) {
+          this.agentPanel.reveal(undefined, true);
+        } else {
+          await this.open({ mode: 'agent' });
+        }
+      } catch {
+        // best-effort reveal
+      }
+    })();
+
     const PERM_WAIT_MS = 5 * 60_000;
     return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        if (!this.terminalPermWaiters.has(id)) {
+      let settled = false;
+      const finish = (decision: TerminalPermissionDecision): void => {
+        if (settled) {
           return;
         }
+        settled = true;
+        clearTimeout(timer);
         this.terminalPermWaiters.delete(id);
-        this.post({ type: 'terminalPermissionSettled', id, decision: 'deny' });
+        this.post({ type: 'terminalPermissionSettled', id, decision });
+        resolve(decision);
+      };
+
+      const timer = setTimeout(() => {
         this.post({
           type: 'progress',
           text: '终端授权等待超时（5 分钟），已跳过该命令',
         });
-        resolve('deny');
+        finish('deny');
       }, PERM_WAIT_MS);
-      this.terminalPermWaiters.set(id, (d) => {
-        clearTimeout(timer);
-        resolve(d);
-      });
+
+      // In-chat card (may be missed if webview scrolled / not focused).
+      this.terminalPermWaiters.set(id, finish);
       this.post({ type: 'terminalPermission', id, command, readonlyGit });
+
+      // Parallel VS Code notification with real buttons — first click wins.
+      // Non-modal so Chat stays usable; detail shows the command.
+      void (async () => {
+        const buttons = readonlyGit
+          ? (['允许一次', '本会话总是允许', '拒绝'] as const)
+          : (['允许一次', '本会话总是允许', '拒绝'] as const);
+        const pick = await vscode.window.showWarningMessage(
+          `Su Agent 请求执行终端命令：\n${preview}`,
+          { modal: false, detail: '也可在 Chat 授权卡片中选择。写文件仍走 Keep/Reject。' },
+          ...buttons,
+        );
+        if (settled) {
+          return;
+        }
+        if (pick === '本会话总是允许') {
+          finish('allow_session');
+        } else if (pick === '允许一次') {
+          finish('allow_once');
+        } else if (pick === '拒绝') {
+          finish('deny');
+        }
+        // Dismissing the toast without a button does nothing — wait for card / timeout.
+      })();
     });
   }
 
@@ -264,19 +304,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     if (!waiter) {
       return;
     }
-    this.terminalPermWaiters.delete(id);
+    // Waiter is the finish() closer from askTerminalPermissionInChat (idempotent).
     waiter(decision);
-    // Sync both IDE Chat and Agent Window cards if both are open.
-    this.post({ type: 'terminalPermissionSettled', id, decision });
   }
 
   private rejectPendingTerminalPermissions(): void {
     const ids = [...this.terminalPermWaiters.keys()];
     for (const id of ids) {
       const waiter = this.terminalPermWaiters.get(id);
-      this.terminalPermWaiters.delete(id);
-      waiter?.('deny');
-      this.post({ type: 'terminalPermissionSettled', id, decision: 'deny' });
+      // Prefer finish() path; if somehow missing, drop the map entry.
+      if (waiter) {
+        waiter('deny');
+      } else {
+        this.terminalPermWaiters.delete(id);
+      }
     }
   }
 
