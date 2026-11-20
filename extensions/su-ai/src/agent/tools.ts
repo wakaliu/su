@@ -452,14 +452,23 @@ async function runTerminal(command: string): Promise<string> {
 
   const root = workspaceRoot();
   const cp = await import('child_process');
+  const shellTimeoutMs = Math.min(
+    300_000,
+    Math.max(5_000, vscode.workspace.getConfiguration('su').get<number>('timeoutMs', 60_000) || 60_000),
+  );
   return await new Promise((resolve) => {
     cp.exec(
       cmd,
-      { cwd: root.fsPath, timeout: 60_000, maxBuffer: 1024 * 1024 },
+      { cwd: root.fsPath, timeout: shellTimeoutMs, maxBuffer: 1024 * 1024, windowsHide: true },
       (err, stdout, stderr) => {
         const out = `${stdout || ''}${stderr ? `\nSTDERR:\n${stderr}` : ''}`.trim();
         if (err) {
-          resolve(`ERROR: ${err.message}\n${out}`.slice(0, 8000));
+          const msg = err.message || String(err);
+          const timedOut = /ETIMEDOUT|TIMEOUT|SIGTERM/i.test(msg);
+          const prefix = timedOut
+            ? `ERROR: terminal command timed out after ${Math.round(shellTimeoutMs / 1000)}s`
+            : `ERROR: ${msg}`;
+          resolve(`${prefix}\n${out}`.slice(0, 8000));
         } else {
           resolve((out || '(no output)').slice(0, 8000));
         }

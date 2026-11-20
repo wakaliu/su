@@ -229,8 +229,32 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     readonlyGit: boolean,
   ): Promise<TerminalPermissionDecision> {
     const id = `term-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const preview = command.length > 80 ? `${command.slice(0, 80)}…` : command;
+    this.post({
+      type: 'progress',
+      text: `等待你授权终端命令：${preview}`,
+    });
+    void vscode.window.showInformationMessage(
+      'Su Agent 等待你在 Chat 中授权终端命令（允许一次 / 本会话总是允许 / 拒绝）。',
+    );
+    const PERM_WAIT_MS = 5 * 60_000;
     return new Promise((resolve) => {
-      this.terminalPermWaiters.set(id, resolve);
+      const timer = setTimeout(() => {
+        if (!this.terminalPermWaiters.has(id)) {
+          return;
+        }
+        this.terminalPermWaiters.delete(id);
+        this.post({ type: 'terminalPermissionSettled', id, decision: 'deny' });
+        this.post({
+          type: 'progress',
+          text: '终端授权等待超时（5 分钟），已跳过该命令',
+        });
+        resolve('deny');
+      }, PERM_WAIT_MS);
+      this.terminalPermWaiters.set(id, (d) => {
+        clearTimeout(timer);
+        resolve(d);
+      });
       this.post({ type: 'terminalPermission', id, command, readonlyGit });
     });
   }
@@ -258,8 +282,29 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   private askUserFeedbackInChat(req: UserFeedbackRequest): Promise<UserFeedbackResult> {
     const id = `fb-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    this.post({ type: 'progress', text: '等待你的选择…' });
+    const PERM_WAIT_MS = 5 * 60_000;
     return new Promise((resolve) => {
-      this.userFeedbackWaiters.set(id, resolve);
+      const timer = setTimeout(() => {
+        if (!this.userFeedbackWaiters.has(id)) {
+          return;
+        }
+        this.userFeedbackWaiters.delete(id);
+        const dismissed: UserFeedbackResult = { status: 'dismissed', selected: [], freeText: '' };
+        this.post({
+          type: 'userFeedbackSettled',
+          id,
+          status: 'dismissed',
+          selected: [],
+          freeText: '',
+        });
+        this.post({ type: 'progress', text: '选择等待超时（5 分钟），已按关闭处理' });
+        resolve(dismissed);
+      }, PERM_WAIT_MS);
+      this.userFeedbackWaiters.set(id, (r) => {
+        clearTimeout(timer);
+        resolve(r);
+      });
       this.post({
         type: 'userFeedback',
         id,
@@ -2308,9 +2353,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     function showTerminalPermission(msg) {
       clearEmpty();
       messageCount++;
+      setLiveProgress('⚠️ 等待你授权终端命令（请点下方卡片）', true);
       const fold = processFold && processFold.wrap && processFold.wrap.isConnected ? processFold : null;
+      if (fold) {
+        fold.details.open = true;
+        refreshProcessSummary(fold, '等待终端授权…', true);
+      }
+      // Always top-level — do not bury the card inside a scrollable fold body.
       const card = document.createElement('div');
-      card.className = fold ? 'perm-card' : 'msg perm-card';
+      card.className = 'msg perm-card';
       card.setAttribute('data-perm-id', msg.id);
       const title = document.createElement('div');
       title.className = 'perm-title';
@@ -2334,6 +2385,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         if (card.classList.contains('done')) return;
         card.classList.add('done');
         hint.textContent = '已选择：' + (decisionLabel[decision] || decision);
+        setLiveProgress('终端授权：' + (decisionLabel[decision] || decision), true);
         if (fold) refreshProcessSummary(fold, '终端授权：' + (decisionLabel[decision] || decision), true);
       }
       function finish(decision) {
@@ -2360,13 +2412,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       card.appendChild(cmd);
       card.appendChild(hint);
       card.appendChild(actions);
-      if (fold) {
-        fold.details.open = true;
-        fold.body.appendChild(card);
-        refreshProcessSummary(fold, '等待终端授权…', true);
-      } else {
-        thread.appendChild(card);
-      }
+      thread.appendChild(card);
       thread.scrollTop = thread.scrollHeight;
     }
 
