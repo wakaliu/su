@@ -846,9 +846,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     if (!trimmed && !hasAtt) {
       return;
     }
-    if (this.abort) {
-      this.abort.abort();
-      this.abort = undefined;
+    // Do not stack turns: aborting mid-flight left the UI on「生成中」with no progress.
+    if (this.streaming || this.abort) {
+      void vscode.window.showWarningMessage('当前正在生成，请先点「停止」或按 Esc，再发送新任务。');
+      return;
     }
 
     await this.setMode(mode);
@@ -891,15 +892,23 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const cfg = await resolveSuRuntimeConfig(this.context);
     const activeModel = resolveActiveModel(this.getModelPick(), cfg);
     this.abort = new AbortController();
+    const timeoutMs = Math.min(
+      600_000,
+      Math.max(
+        cfg.timeoutMs,
+        systemExtras.length > 0 || Array.isArray(turn.apiContent) ? 120_000 : cfg.timeoutMs,
+      ),
+    );
+    this.post({
+      type: 'progress',
+      text: `正在调用 ${activeModel}（最长 ${Math.round(timeoutMs / 1000)}s）…`,
+    });
 
     if (mode === 'agent') {
       await this.runAgentTurn(turn.apiContent, systemExtras, {
         ...cfg,
         model: activeModel,
-        timeoutMs: Math.max(
-          cfg.timeoutMs,
-          systemExtras.length > 0 || Array.isArray(turn.apiContent) ? 120_000 : cfg.timeoutMs,
-        ),
+        timeoutMs,
       });
       return;
     }
@@ -907,10 +916,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     await this.runAskTurn(turn.apiContent, systemExtras, {
       ...cfg,
       model: activeModel,
-      timeoutMs: Math.max(
-        cfg.timeoutMs,
-        systemExtras.length > 0 || Array.isArray(turn.apiContent) ? 120_000 : cfg.timeoutMs,
-      ),
+      timeoutMs,
     });
   }
 
@@ -1337,6 +1343,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     .hp-empty { color: var(--muted); padding: 16px; text-align: center; }
     .streaming-hint { display: none; color: var(--muted); font-size: 11px; }
     .streaming-hint.on { display: inline; }
+    .live-progress {
+      display: none; align-items: center; gap: 8px; margin: 0 10px 8px; padding: 8px 10px;
+      border: 1px solid color-mix(in srgb, var(--link) 40%, var(--border)); border-radius: 8px;
+      background: color-mix(in srgb, var(--btn-bg) 14%, var(--bg)); color: var(--link);
+      font-size: 12px; line-height: 1.4; flex-shrink: 0;
+    }
+    .live-progress.on { display: flex; }
+    .live-progress .lp-dot {
+      width: 8px; height: 8px; border-radius: 50%; background: var(--link); flex-shrink: 0;
+      animation: lp-pulse 1s ease-in-out infinite;
+    }
+    @keyframes lp-pulse { 0%,100% { opacity: .35; } 50% { opacity: 1; } }
     .composer {
       position: relative; border: 1px solid var(--border); border-radius: 8px;
       background: var(--input-bg); padding: 6px; display: flex; flex-direction: column; gap: 6px;
@@ -1458,6 +1476,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     <div class="meta" id="meta">加载中…</div>
   </header>
   <div id="thread"></div>
+  <div class="live-progress" id="liveProgress" aria-live="polite">
+    <span class="lp-dot" aria-hidden="true"></span>
+    <span id="liveProgressText">正在思考 / 等待模型…</span>
+  </div>
   <div class="diff-bar" id="diffBar">
     <span class="label" id="diffLabel">待审 0 个文件</span>
     <button type="button" class="secondary" id="btnKeepAll">Keep All</button>
@@ -1505,6 +1527,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const meta = document.getElementById('meta');
     const sessionTitle = document.getElementById('sessionTitle');
     const modelPick = document.getElementById('modelPick');
+    const liveProgress = document.getElementById('liveProgress');
+    const liveProgressText = document.getElementById('liveProgressText');
     const pillAsk = document.getElementById('pillAsk');
     const pillAgent = document.getElementById('pillAgent');
     const selChip = document.getElementById('selChip');
@@ -1962,6 +1986,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       });
     }
 
+    function setLiveProgress(text, on) {
+      if (!liveProgress || !liveProgressText) return;
+      if (typeof on === 'boolean') liveProgress.classList.toggle('on', on);
+      if (text) liveProgressText.textContent = text;
+    }
+
     function setStreaming(on) {
       streaming = on;
       btnSend.disabled = on;
@@ -1969,6 +1999,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       streamHint.classList.toggle('on', on);
       pillAsk.disabled = on;
       pillAgent.disabled = on;
+      if (on) setLiveProgress('正在思考 / 等待模型…', true);
+      else setLiveProgress('', false);
     }
 
     let hasWorkspace = true;
@@ -2633,6 +2665,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           break;
         case 'assistantStart': {
           setStreaming(true);
+          setLiveProgress('正在思考 / 等待模型…', true);
           // Defer the answer card so tool steps stay above the final reply.
           currentCard = null;
           currentBody = null;
@@ -2646,6 +2679,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           break;
         }
         case 'progress': {
+          setLiveProgress(msg.text || '处理中…', true);
           const fold = ensureProcessFold();
           fold.details.open = true;
           // Keep a visible pending step, not only the summary live line.
@@ -2671,6 +2705,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           }
           break;
         case 'tool':
+          setLiveProgress('执行：' + toolPretty((msg.text || '').split('\\n')[0] || '工具'), true);
           appendToolStep(msg.text || '');
           break;
         case 'terminalPermission':

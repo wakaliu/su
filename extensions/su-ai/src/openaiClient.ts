@@ -63,6 +63,11 @@ export function joinApiUrl(baseUrl: string, pathPart: string): string {
   return `${base}/${path}`;
 }
 
+/** Clamp request timeouts so a huge su.timeoutMs cannot hang the UI forever. */
+export function clampTimeoutMs(timeoutMs: number): number {
+  return Math.min(600_000, Math.max(1_000, timeoutMs || 60_000));
+}
+
 /**
  * Maps fetch AbortError to用户停止 vs 请求超时 (timer abort must not look like Esc).
  */
@@ -70,7 +75,7 @@ function throwIfAborted(
   e: unknown,
   opts: { signal?: AbortSignal; timeoutMs: number; timedOut: () => boolean },
 ): never {
-  if (opts.signal?.aborted) {
+  if (opts.signal?.aborted && !opts.timedOut()) {
     throw new Error('已停止生成');
   }
   if (opts.timedOut() || (e instanceof Error && e.name === 'AbortError')) {
@@ -80,6 +85,35 @@ function throwIfAborted(
     );
   }
   throw e instanceof Error ? e : new Error(String(e));
+}
+
+/**
+ * Hard deadline in case Electron fetch ignores AbortSignal (packaged builds have hung here).
+ */
+function raceWithTimeout<T>(
+  work: Promise<T>,
+  opts: { timeoutMs: number; timedOut: () => boolean; markTimedOut: () => void; abort: () => void },
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      opts.markTimedOut();
+      opts.abort();
+      const sec = Math.max(1, Math.round(opts.timeoutMs / 1000));
+      reject(
+        new Error(`请求超时（${sec}s）。请检查中转/网络，或增大设置 su.timeoutMs 后重试。`),
+      );
+    }, opts.timeoutMs);
+    work.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+    );
+  });
 }
 
 /**
@@ -157,7 +191,7 @@ export async function completeChatWithTools(opts: ToolChatOptions): Promise<Tool
   const controller = new AbortController();
   const onAbort = (): void => controller.abort();
   opts.signal?.addEventListener('abort', onAbort, { once: true });
-  const timeoutMs = Math.max(1000, opts.timeoutMs);
+  const timeoutMs = clampTimeoutMs(opts.timeoutMs);
   let timedOut = false;
   const timer = setTimeout(() => {
     timedOut = true;
@@ -165,44 +199,58 @@ export async function completeChatWithTools(opts: ToolChatOptions): Promise<Tool
   }, timeoutMs);
 
   try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${opts.apiKey}`,
-        'Content-Type': 'application/json',
+    const work = (async (): Promise<ToolChatResult> => {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${opts.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: opts.model,
+          messages: opts.messages,
+          tools: opts.tools,
+          tool_choice: 'auto',
+          stream: false,
+        }),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        throw new Error(formatHttpError(res.status, body));
+      }
+
+      const json = (await res.json()) as {
+        choices?: Array<{
+          message?: { content?: string | null; tool_calls?: ToolCall[] };
+          finish_reason?: string;
+        }>;
+        error?: { message?: string };
+      };
+      if (json.error?.message) {
+        throw new Error(json.error.message);
+      }
+      const msg = json.choices?.[0]?.message;
+      return {
+        content: (msg?.content || '').trim(),
+        tool_calls: msg?.tool_calls,
+        finish_reason: json.choices?.[0]?.finish_reason,
+      };
+    })();
+
+    return await raceWithTimeout(work, {
+      timeoutMs,
+      timedOut: () => timedOut,
+      markTimedOut: () => {
+        timedOut = true;
       },
-      body: JSON.stringify({
-        model: opts.model,
-        messages: opts.messages,
-        tools: opts.tools,
-        tool_choice: 'auto',
-        stream: false,
-      }),
-      signal: controller.signal,
+      abort: () => controller.abort(),
     });
-
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(formatHttpError(res.status, body));
-    }
-
-    const json = (await res.json()) as {
-      choices?: Array<{
-        message?: { content?: string | null; tool_calls?: ToolCall[] };
-        finish_reason?: string;
-      }>;
-      error?: { message?: string };
-    };
-    if (json.error?.message) {
-      throw new Error(json.error.message);
-    }
-    const msg = json.choices?.[0]?.message;
-    return {
-      content: (msg?.content || '').trim(),
-      tool_calls: msg?.tool_calls,
-      finish_reason: json.choices?.[0]?.finish_reason,
-    };
   } catch (e) {
+    if (e instanceof Error && e.message.startsWith('请求超时')) {
+      throw e;
+    }
     return throwIfAborted(e, { signal: opts.signal, timeoutMs, timedOut: () => timedOut });
   } finally {
     clearTimeout(timer);
