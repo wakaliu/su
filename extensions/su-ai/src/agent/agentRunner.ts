@@ -26,6 +26,11 @@ export interface AgentRunOptions {
   signal?: AbortSignal;
   diffs: DiffReviewService;
   onEvent: (ev: AgentEvent) => void;
+  /**
+   * Plan Build / long tasks: if the model stops mid-work with a text reply,
+   * nudge and keep the tool loop going instead of waiting for the user to type 继续.
+   */
+  continueUntilDone?: boolean;
 }
 
 export type AgentEvent =
@@ -34,6 +39,37 @@ export type AgentEvent =
   /** Live status while waiting on the model (no tool yet). */
   | { type: 'progress'; text: string }
   | { type: 'done'; summary: string };
+
+const MAX_AUTO_CONTINUES = 8;
+
+const PLAN_CONTINUE_SYSTEM =
+  'You are executing an approved user plan. Keep calling tools until every plan step and acceptance criterion is finished. ' +
+  'Do not stop after a partial batch to wait for Keep/Reject or for the user to type 继续 — Keep/Reject is asynchronous and does not block you. ' +
+  'Only stop when the whole plan is done, you are blocked on ask_user(kind=choice), or the user cancels. ' +
+  'When fully done, say clearly that the plan is complete.';
+
+/**
+ * True when the assistant text claims the overall task/plan is finished.
+ */
+export function looksLikeTaskComplete(text: string): boolean {
+  const t = text || '';
+  const done =
+    /全部完成|计划已完成|所有步骤已|验收(标准)?(均已|已)?满足|已完成(本|整份)?计划|task complete|all steps (are )?done|plan (is )?complete/i.test(
+      t,
+    );
+  const still =
+    /下一步|待继续|尚未|还剩|部分完成|先到这里|请(你)?继续|输入.?继续|未完成|剩余步骤/i.test(t);
+  return done && !still;
+}
+
+/**
+ * True when the assistant is parking and expecting the user to say 继续 / review first.
+ */
+export function looksLikePausedForUser(text: string): boolean {
+  return /请(你)?继续|输入.?继续|说.?继续|下一步(再|我)|等你(确认|Keep|审阅|回复)|先到这里|本轮先|部分完成|尚未完成|还剩|接下来你(可以|再)|如果需要.*继续|要我继续/i.test(
+    text || '',
+  );
+}
 
 /**
  * Runs a tool-calling Agent loop against an OpenAI-compatible endpoint.
@@ -52,17 +88,20 @@ export async function runAgent(opts: AgentRunOptions): Promise<void> {
 
   const systemParts = [
     'You are Su Agent inside the su editor. You can inspect and edit files in the workspace using tools. ' +
-      'Prefer replace_in_file for small edits. After tools finish, summarize what you changed. ' +
+      'Prefer replace_in_file for small edits. ' +
       'You may receive images in the user message; read them (UI screenshots, error dialogs, diagrams) and use that information when planning tool calls. ' +
       'A read-only workspace snapshot (git branches/paths) may be injected — use it first for questions like "current branch". ' +
       'If you need a live check, call run_terminal (the user confirms in Chat: Allow once / Always this session / Deny). ' +
       'ask_user: use kind=choice only for real forks while doing the requested work; ' +
-      'use kind=suggestion ONLY for optional follow-ups AFTER you already made progress (e.g. commit). ' +
+      'use kind=suggestion ONLY for optional follow-ups AFTER you already finished the requested work (e.g. commit). ' +
       'Never ask_user(suggestion) to ask whether you may start a task the user already asked for — just begin with tools. ' +
       'If ask_user is dismissed on choice → continue current plan without expansions; on suggestion → stop. ' +
+      'Keep calling tools until the user request (or injected plan) is fully done. Do not stop mid-task to wait for Keep/Reject or for the user to type 继续 — Keep/Reject is async. ' +
+      'Only pause for ask_user(choice) when a real decision blocks progress. ' +
       'Reply in the user\'s language. Do not claim you lack filesystem access or that you ran commands the user skipped. ' +
       SU_REPLY_FORMAT_HINT +
-      ' After tools finish, end with a brief summary of changes and any verification or next steps.',
+      ' When finished, end with a brief summary of changes and verification; do not list "next steps" that you could still do yourself in this turn.',
+    ...(opts.continueUntilDone ? [PLAN_CONTINUE_SYSTEM] : []),
     ...(opts.systemExtras || []),
   ];
 
@@ -83,6 +122,8 @@ export async function runAgent(opts: AgentRunOptions): Promise<void> {
   // Per LLM round (not whole task). Caller supplies su.agent.timeoutMs (default 10min).
   const timeoutMs = opts.timeoutMs;
   const timeoutSec = Math.max(1, Math.round(timeoutMs / 1000));
+  let autoContinues = 0;
+  let toolsUsedThisTurn = false;
 
   for (let step = 0; step < maxSteps; step++) {
     if (opts.signal?.aborted) {
@@ -127,6 +168,7 @@ export async function runAgent(opts: AgentRunOptions): Promise<void> {
     }
 
     if (result.tool_calls && result.tool_calls.length > 0) {
+      toolsUsedThisTurn = true;
       messages.push({
         role: 'assistant',
         content: result.content || null,
@@ -172,6 +214,31 @@ export async function runAgent(opts: AgentRunOptions): Promise<void> {
     }
 
     const text = result.content || '（无文本回复）';
+    const shouldNudge =
+      !!opts.continueUntilDone &&
+      autoContinues < MAX_AUTO_CONTINUES &&
+      toolsUsedThisTurn &&
+      !looksLikeTaskComplete(text) &&
+      (looksLikePausedForUser(text) || opts.diffs.size > 0 || autoContinues === 0);
+
+    if (shouldNudge) {
+      autoContinues++;
+      messages.push({ role: 'assistant', content: text });
+      opts.onEvent({ type: 'assistant', text: `${text}\n\n---` });
+      opts.onEvent({
+        type: 'progress',
+        text: `计划尚未完成，自动继续（${autoContinues}/${MAX_AUTO_CONTINUES}）…`,
+      });
+      messages.push({
+        role: 'user',
+        content:
+          '请继续执行剩余步骤与验收项，不要停下来等我说「继续」或等 Keep/Reject。' +
+          '用工具接着做，直到整份计划完成；完成后明确说明「计划已完成」。' +
+          '仅在真正需要我抉择时才 ask_user(kind=choice)。',
+      });
+      continue;
+    }
+
     opts.onEvent({ type: 'assistant', text });
     opts.onEvent({
       type: 'done',

@@ -1144,7 +1144,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.post({ type: 'planCardSync', revision: s.planDraft.revision, markdown: body });
     await this.setMode('agent');
     const prompt =
-      '请严格按照以下计划执行（不要重新大幅改规划，除非发现问题）。完成后简要总结。\n\n' +
+      '请严格按照以下计划执行（不要重新大幅改规划，除非发现问题）。' +
+      '在本轮内用工具连续完成所有步骤与验收项，不要中途停下来等我说「继续」或等 Keep/Reject。' +
+      '全部完成后明确说明「计划已完成」并简要总结。\n\n' +
       `<su-plan>\n${body}\n</su-plan>`;
     await this.handleSend(prompt, false, 'agent');
   }
@@ -1287,6 +1289,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     cfg: { baseUrl: string; apiKey: string; model: string; timeoutMs: number },
   ): Promise<void> {
     let assistant = '';
+    const contentText =
+      typeof userContent === 'string'
+        ? userContent
+        : Array.isArray(userContent)
+          ? userContent
+              .map((p) => (p && typeof p === 'object' && 'text' in p ? String((p as { text?: string }).text || '') : ''))
+              .join('\n')
+          : '';
+    // Build injects <su-plan>; "继续" after a plan draft also keeps auto-nudge on.
+    const continueUntilDone =
+      /<su-plan>[\s\S]*?<\/su-plan>/i.test(contentText) ||
+      /连续完成所有步骤|不要中途停下来等我说「继续」/.test(contentText) ||
+      (!!this.activeSession.planDraft && /^(继续|continue)\b/i.test(contentText.trim()));
     try {
       await runAgent({
         baseUrl: cfg.baseUrl,
@@ -1298,6 +1313,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         history: this.history.slice(0, -1),
         signal: this.abort?.signal,
         diffs: this.diffs,
+        continueUntilDone,
         onEvent: (ev) => {
           if (ev.type === 'progress') {
             this.post({ type: 'progress', text: ev.text });
@@ -1305,7 +1321,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             this.post({ type: 'tool', text: ev.detail });
             this.emitDiffsChanged();
           } else if (ev.type === 'assistant') {
-            assistant = ev.text;
+            assistant = assistant ? `${assistant}\n${ev.text}` : ev.text;
             this.post({ type: 'assistantDelta', text: ev.text });
           } else if (ev.type === 'done') {
             if (!assistant && ev.summary) {
@@ -1321,7 +1337,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           : '任务结束。';
         this.post({ type: 'assistantDelta', text: assistant });
       } else if (this.diffs.size) {
-        const tip = `\n\n— 待审 ${this.diffs.size} 个文件：可用消息旁 Keep / Reject。`;
+        const tip = `\n\n— 待审 ${this.diffs.size} 个文件：可用消息旁 Keep / Reject（不阻断 Agent；可边审边看后续结果）。`;
         assistant += tip;
         this.post({ type: 'assistantDelta', text: tip });
       }

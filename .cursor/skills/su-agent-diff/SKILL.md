@@ -24,6 +24,7 @@ description: Agent 多文件编辑与 Inline Diff 审阅（v0.4+）。
 - Chat：Diff 角标、待审条（Keep All / Reject All / 审阅）；状态栏 `待审 N`
 - Chat 面板 **Agent** 模式触发；也可从 **Plan** 点 Build 注入计划后进入 Agent（见 ADR-0002 / v0.6.1）
 - Plan 本身不写文件、不跑终端；执行仍走 Keep/Reject 与终端授权
+- Build / `<su-plan>`：`continueUntilDone` — 模型中途收尾时自动 nudge 再开工具轮（最多 8 次）；勿把 Keep/Reject 当成停跑信号
 - 支持本轮拖入图片（`image_url` 多模态，需视觉模型）；历史仍存文本摘要
 - 不自动提权 / 不写工作区外路径
 
