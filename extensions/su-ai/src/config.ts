@@ -10,7 +10,10 @@ export interface SuConfig {
   model: string;
   /** Extra model ids from `su.models` (same Base URL / API Key). */
   models: string[];
+  /** Ask / general request timeout. */
   timeoutMs: number;
+  /** Per Agent LLM round-trip timeout (tool loop step). */
+  agentTimeoutMs: number;
 }
 
 /**
@@ -23,11 +26,18 @@ export function getSuConfig(): SuConfig {
   const models = extra
     .map((m) => (typeof m === 'string' ? m.trim() : ''))
     .filter((m) => m.length > 0);
+  const timeoutMs = Math.min(600_000, Math.max(5_000, cfg.get<number>('timeoutMs', 60_000) || 60_000));
+  // Agent rounds often need minutes (large prompts + tools + slow relays); default 10 min.
+  const agentTimeoutMs = Math.min(
+    1_800_000,
+    Math.max(30_000, cfg.get<number>('agent.timeoutMs', 600_000) || 600_000),
+  );
   return {
     baseUrl: (cfg.get<string>('baseUrl', 'https://api.openai.com/v1') || '').trim().replace(/\/+$/, ''),
     model: model || 'gpt-4o-mini',
     models,
-    timeoutMs: cfg.get<number>('timeoutMs', 60000) || 60000,
+    timeoutMs,
+    agentTimeoutMs,
   };
 }
 

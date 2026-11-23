@@ -63,9 +63,17 @@ export function joinApiUrl(baseUrl: string, pathPart: string): string {
   return `${base}/${path}`;
 }
 
-/** Clamp request timeouts so a huge su.timeoutMs cannot hang the UI forever. */
-export function clampTimeoutMs(timeoutMs: number): number {
-  return Math.min(600_000, Math.max(1_000, timeoutMs || 60_000));
+/** Clamp request timeouts (Ask ≤10min; Agent may pass up to 30min via su.agent.timeoutMs). */
+export function clampTimeoutMs(timeoutMs: number, maxMs = 600_000): number {
+  return Math.min(maxMs, Math.max(1_000, timeoutMs || 60_000));
+}
+
+function timeoutErrorMessage(timeoutMs: number): string {
+  const sec = Math.max(1, Math.round(timeoutMs / 1000));
+  return (
+    `模型请求超时（单轮 ${sec}s）。复杂 Agent 任务请增大设置 su.agent.timeoutMs（默认 600000=10分钟/轮）；` +
+    `Ask 用 su.timeoutMs。亦请检查中转/网络。`
+  );
 }
 
 /**
@@ -79,10 +87,7 @@ function throwIfAborted(
     throw new Error('已停止生成');
   }
   if (opts.timedOut() || (e instanceof Error && e.name === 'AbortError')) {
-    const sec = Math.max(1, Math.round(opts.timeoutMs / 1000));
-    throw new Error(
-      `请求超时（${sec}s）。请检查中转/网络，或增大设置 su.timeoutMs 后重试。`,
-    );
+    throw new Error(timeoutErrorMessage(opts.timeoutMs));
   }
   throw e instanceof Error ? e : new Error(String(e));
 }
@@ -98,10 +103,7 @@ function raceWithTimeout<T>(
     const timer = setTimeout(() => {
       opts.markTimedOut();
       opts.abort();
-      const sec = Math.max(1, Math.round(opts.timeoutMs / 1000));
-      reject(
-        new Error(`请求超时（${sec}s）。请检查中转/网络，或增大设置 su.timeoutMs 后重试。`),
-      );
+      reject(new Error(timeoutErrorMessage(opts.timeoutMs)));
     }, opts.timeoutMs);
     work.then(
       (v) => {
@@ -191,7 +193,8 @@ export async function completeChatWithTools(opts: ToolChatOptions): Promise<Tool
   const controller = new AbortController();
   const onAbort = (): void => controller.abort();
   opts.signal?.addEventListener('abort', onAbort, { once: true });
-  const timeoutMs = clampTimeoutMs(opts.timeoutMs);
+  // Agent rounds may legitimately need >10min on slow relays; allow up to 30min.
+  const timeoutMs = clampTimeoutMs(opts.timeoutMs, 1_800_000);
   let timedOut = false;
   const timer = setTimeout(() => {
     timedOut = true;
@@ -248,7 +251,7 @@ export async function completeChatWithTools(opts: ToolChatOptions): Promise<Tool
       abort: () => controller.abort(),
     });
   } catch (e) {
-    if (e instanceof Error && e.message.startsWith('请求超时')) {
+    if (e instanceof Error && /请求超时/.test(e.message)) {
       throw e;
     }
     return throwIfAborted(e, { signal: opts.signal, timeoutMs, timedOut: () => timedOut });

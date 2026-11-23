@@ -978,16 +978,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const cfg = await resolveSuRuntimeConfig(this.context);
     const activeModel = resolveActiveModel(this.getModelPick(), cfg);
     this.abort = new AbortController();
-    const timeoutMs = Math.min(
-      600_000,
-      Math.max(
-        cfg.timeoutMs,
-        systemExtras.length > 0 || Array.isArray(turn.apiContent) ? 120_000 : cfg.timeoutMs,
-      ),
-    );
+    // Agent: long per-round wait (Cursor-like). Ask: shorter; bump for images/context.
+    const timeoutMs =
+      mode === 'agent'
+        ? cfg.agentTimeoutMs
+        : Math.max(
+            cfg.timeoutMs,
+            Array.isArray(turn.apiContent) || systemExtras.length > 0 ? 120_000 : cfg.timeoutMs,
+          );
     this.post({
       type: 'progress',
-      text: `正在调用 ${activeModel}（最长 ${Math.round(timeoutMs / 1000)}s）…`,
+      text: `正在调用 ${activeModel}（本轮最长 ${Math.round(timeoutMs / 1000)}s）…`,
     });
 
     if (mode === 'agent') {
@@ -2836,6 +2837,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           break;
         case 'error':
           setStreaming(false);
+          setLiveProgress('', false);
           if (currentCard) {
             currentCard.remove();
             currentCard = null;

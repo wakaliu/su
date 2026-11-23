@@ -80,10 +80,9 @@ export async function runAgent(opts: AgentRunOptions): Promise<void> {
     { role: 'user', content: opts.userContent },
   ];
 
-  const timeoutMs = Math.max(
-    opts.timeoutMs,
-    Array.isArray(opts.userContent) ? 120_000 : opts.timeoutMs,
-  );
+  // Per LLM round (not whole task). Caller supplies su.agent.timeoutMs (default 10min).
+  const timeoutMs = opts.timeoutMs;
+  const timeoutSec = Math.max(1, Math.round(timeoutMs / 1000));
 
   for (let step = 0; step < maxSteps; step++) {
     if (opts.signal?.aborted) {
@@ -93,7 +92,10 @@ export async function runAgent(opts: AgentRunOptions): Promise<void> {
     const startedAt = Date.now();
     opts.onEvent({
       type: 'progress',
-      text: step === 0 ? '正在思考 / 等待模型…' : `继续推理 · 第 ${step + 1} 轮…`,
+      text:
+        step === 0
+          ? `正在思考 / 等待模型…（本轮最长 ${timeoutSec}s）`
+          : `继续推理 · 第 ${step + 1} 轮…（本轮最长 ${timeoutSec}s）`,
     });
     const heartbeat = setInterval(() => {
       if (opts.signal?.aborted) {
@@ -104,8 +106,8 @@ export async function runAgent(opts: AgentRunOptions): Promise<void> {
         type: 'progress',
         text:
           step === 0
-            ? `正在思考 / 等待模型… 已等待 ${sec}s`
-            : `继续推理 · 第 ${step + 1} 轮… 已等待 ${sec}s`,
+            ? `正在思考 / 等待模型… 已等待 ${sec}s / ${timeoutSec}s`
+            : `继续推理 · 第 ${step + 1} 轮… 已等待 ${sec}s / ${timeoutSec}s`,
       });
     }, 5000);
 

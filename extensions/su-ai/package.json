@@ -303,7 +303,16 @@
         "su.timeoutMs": {
           "type": "number",
           "default": 60000,
-          "description": "请求超时（毫秒）。"
+          "minimum": 5000,
+          "maximum": 600000,
+          "markdownDescription": "Ask / 通用请求超时（毫秒）。Agent 请用 `su.agent.timeoutMs`。"
+        },
+        "su.agent.timeoutMs": {
+          "type": "number",
+          "default": 600000,
+          "minimum": 30000,
+          "maximum": 1800000,
+          "markdownDescription": "Agent **每一轮**调用模型的超时（毫秒，默认 10 分钟）。长任务/中转慢时可调大；与 Cursor 类似按轮等待，不是整次任务总时长。"
         },
         "su.ghostText.enabled": {
           "type": "boolean",
