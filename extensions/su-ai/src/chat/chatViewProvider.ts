@@ -25,6 +25,8 @@ import {
 } from './attachments';
 import { listAtMentionItems } from './atMentions';
 import { runAskWithTools } from './askRunner';
+import { parsePlanResponse, stripPlanTags, validatePlanMarkdown } from './plan';
+import { runPlanWithTools } from './planRunner';
 import { renderReplyMarkdown } from './replyMarkdown';
 import { loadWorkspaceRulesFragment } from './rulesCatalog';
 import { listInstalledSkills } from './skillsCatalog';
@@ -32,6 +34,7 @@ import { buildWorkspaceContextSnippet } from './workspaceContext';
 import {
   createEmptySession,
   LEGACY_HISTORY_KEY,
+  normalizeMode,
   normalizeStore,
   sessionSummaries,
   SESSIONS_KEY,
@@ -89,7 +92,8 @@ type WebviewToExt =
       status: 'answered' | 'dismissed';
       selected: string[];
       freeText: string;
-    };
+    }
+  | { type: 'buildPlan'; markdown: string };
 
 type ExtToWebview =
   | {
@@ -129,6 +133,7 @@ type ExtToWebview =
   | { type: 'assistantDone' }
   | { type: 'tool'; text: string }
   | { type: 'progress'; text: string }
+  | { type: 'planCard'; revision: string; markdown: string }
   | {
       type: 'terminalPermission';
       id: string;
@@ -558,10 +563,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         await this.handleSend(
           raw.text,
           raw.includeSelection,
-          raw.mode === 'agent' ? 'agent' : 'chat',
+          normalizeMode(raw.mode),
           raw.modelPick,
           raw.attachments,
         );
+        break;
+      case 'buildPlan':
+        await this.buildPlan(raw.markdown);
         break;
       case 'listSkills':
         this.post({
@@ -626,7 +634,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         await this.deleteSession(raw.id);
         break;
       case 'setMode':
-        await this.setMode(raw.mode === 'agent' ? 'agent' : 'chat');
+        await this.setMode(normalizeMode(raw.mode));
         break;
       case 'reviewDiffs':
         await vscode.commands.executeCommand('su.reviewAgentDiffs');
@@ -766,13 +774,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   private getMode(): ChatMode {
     const m = this.context.workspaceState.get<string>(MODE_KEY, 'chat');
-    return m === 'agent' ? 'agent' : 'chat';
+    return normalizeMode(m);
   }
 
   private async setMode(mode: ChatMode): Promise<void> {
-    await this.context.workspaceState.update(MODE_KEY, mode);
+    const next = normalizeMode(mode);
+    await this.context.workspaceState.update(MODE_KEY, next);
     const s = this.activeSession;
-    s.mode = mode;
+    s.mode = next;
     s.updatedAt = Date.now();
     await this.persistStore();
     await this.pushStatus();
@@ -868,8 +877,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           (m): m is ChatMessage & { role: 'user' | 'assistant'; content: string } =>
             (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string',
         )
-        .map((m) => ({ role: m.role, content: m.content })),
+        .map((m) => ({
+          role: m.role,
+          // Hide raw <su-plan> tags in restored thread; plan card is posted separately.
+          content: m.role === 'assistant' ? stripPlanTags(m.content) : m.content,
+        })),
     });
+    if (s.planDraft?.markdown) {
+      this.post({
+        type: 'planCard',
+        revision: s.planDraft.revision,
+        markdown: s.planDraft.markdown,
+      });
+    }
   }
 
   private async pushStatus(): Promise<void> {
@@ -978,9 +998,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const cfg = await resolveSuRuntimeConfig(this.context);
     const activeModel = resolveActiveModel(this.getModelPick(), cfg);
     this.abort = new AbortController();
-    // Agent: long per-round wait (Cursor-like). Ask: shorter; bump for images/context.
+    // Agent/Plan: long per-round wait. Ask: shorter; bump for images/context.
     const timeoutMs =
-      mode === 'agent'
+      mode === 'agent' || mode === 'plan'
         ? cfg.agentTimeoutMs
         : Math.max(
             cfg.timeoutMs,
@@ -1000,11 +1020,44 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       return;
     }
 
+    if (mode === 'plan') {
+      await this.runPlanTurn(turn.apiContent, systemExtras, {
+        ...cfg,
+        model: activeModel,
+        timeoutMs,
+      });
+      return;
+    }
+
     await this.runAskTurn(turn.apiContent, systemExtras, {
       ...cfg,
       model: activeModel,
       timeoutMs,
     });
+  }
+
+  /**
+   * Build: switch to Agent and execute the current plan markdown.
+   */
+  private async buildPlan(markdown: string): Promise<void> {
+    const body = validatePlanMarkdown(markdown);
+    if (!body) {
+      void vscode.window.showWarningMessage('计划内容为空或过长，无法 Build。');
+      return;
+    }
+    if (this.streaming || this.abort) {
+      void vscode.window.showWarningMessage('当前正在生成，请先停止后再 Build。');
+      return;
+    }
+    const s = this.activeSession;
+    s.planDraft = { revision: `rev_${Date.now()}`, markdown: body };
+    s.updatedAt = Date.now();
+    await this.persistStore();
+    await this.setMode('agent');
+    const prompt =
+      '请严格按照以下计划执行（不要重新大幅改规划，除非发现问题）。完成后简要总结。\n\n' +
+      `<su-plan>\n${body}\n</su-plan>`;
+    await this.handleSend(prompt, false, 'agent');
   }
 
   private async runAskTurn(
@@ -1042,6 +1095,80 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       if (assistant) {
         this.history = [...this.history, { role: 'assistant', content: assistant }];
         await this.saveHistory();
+      }
+      this.post({ type: 'assistantDone' });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      if (message === '已停止生成') {
+        if (assistant) {
+          this.history = [...this.history, { role: 'assistant', content: assistant }];
+          await this.saveHistory();
+        }
+        this.post({ type: 'stopped' });
+      } else {
+        this.post({
+          type: 'error',
+          message: friendlyChatError(message, { hadImages: Array.isArray(userContent) }),
+        });
+      }
+    } finally {
+      this.abort = undefined;
+      await this.setStreaming(false);
+      await this.pushStatus();
+    }
+  }
+
+  private async runPlanTurn(
+    userContent: import('../openaiClient').ChatMessage['content'],
+    systemExtras: string[],
+    cfg: { baseUrl: string; apiKey: string; model: string; timeoutMs: number },
+  ): Promise<void> {
+    let assistant = '';
+    try {
+      await runPlanWithTools({
+        baseUrl: cfg.baseUrl,
+        apiKey: cfg.apiKey,
+        model: cfg.model,
+        timeoutMs: cfg.timeoutMs,
+        userContent: userContent ?? '',
+        systemExtras,
+        history: this.history.slice(0, -1),
+        signal: this.abort?.signal,
+        onEvent: (ev) => {
+          if (ev.type === 'progress') {
+            this.post({ type: 'progress', text: ev.text });
+          } else if (ev.type === 'tool') {
+            this.post({ type: 'tool', text: ev.detail });
+          } else if (ev.type === 'assistant') {
+            assistant = ev.text;
+            const draft = parsePlanResponse(ev.text);
+            if (draft) {
+              const intro = ev.text.replace(/<su-plan>[\s\S]*?<\/su-plan>/m, '').trim();
+              if (intro) {
+                this.post({ type: 'assistantDelta', text: intro });
+              }
+            } else {
+              this.post({ type: 'assistantDelta', text: ev.text });
+            }
+          } else if (ev.type === 'done') {
+            if (!assistant && ev.summary) {
+              assistant = ev.summary;
+              this.post({ type: 'assistantDelta', text: ev.summary });
+            }
+          }
+        },
+      });
+      if (assistant) {
+        this.history = [...this.history, { role: 'assistant', content: assistant }];
+        await this.saveHistory();
+        const draft = parsePlanResponse(assistant);
+        if (draft) {
+          const s = this.activeSession;
+          s.planDraft = draft;
+          s.updatedAt = Date.now();
+          await this.persistStore();
+          this.post({ type: 'planCard', revision: draft.revision, markdown: draft.markdown });
+        }
       }
       this.post({ type: 'assistantDone' });
     } catch (e) {
@@ -1374,6 +1501,28 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
     .fb-card.done { opacity: 0.88; }
     .fb-card.done .fb-actions, .fb-card.done .fb-options, .fb-card.done .fb-free { display: none; }
+    .plan-card {
+      align-self: stretch; border: 1px solid color-mix(in srgb, var(--link) 40%, var(--border));
+      border-radius: 10px; padding: 12px; background: color-mix(in srgb, var(--input-bg) 90%, var(--bg));
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .plan-card .plan-title { font-size: 12px; font-weight: 650; color: var(--fg); }
+    .plan-card .plan-hint { font-size: 11px; color: var(--muted); }
+    .plan-card textarea.plan-body {
+      width: 100%; min-height: 180px; max-height: 420px; resize: vertical; box-sizing: border-box;
+      padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--code-bg); color: var(--fg); font: 12px/1.45 var(--mono);
+    }
+    .plan-card .plan-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+    .plan-card .plan-actions button {
+      font-size: 12px; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border);
+      background: var(--btn2-bg); color: var(--btn2-fg); cursor: pointer;
+    }
+    .plan-card .plan-actions button.primary {
+      background: var(--btn-bg); color: var(--btn-fg); border-color: transparent; font-weight: 600;
+    }
+    .plan-card.built { opacity: 0.85; }
+    .plan-card.built .plan-actions { display: none; }
     .diff-bar {
       display: none; gap: 6px; flex-wrap: wrap; padding: 6px 10px; border-top: 1px solid var(--border);
       background: color-mix(in srgb, var(--btn-bg) 12%, var(--bg));
@@ -1581,8 +1730,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       <textarea id="input" placeholder="问 Su… 拖文件；/ Skills；@ 引用；Enter 发送"></textarea>
     </div>
     <div class="row">
-      <div class="pills" title="Ask=问答；Agent=可改工作区">
+      <div class="pills" title="Ask=问答；Plan=定计划；Agent=执行改文件">
         <button type="button" id="pillAsk" class="active">Ask</button>
+        <button type="button" id="pillPlan">Plan</button>
         <button type="button" id="pillAgent">Agent</button>
       </div>
       <select id="modelPick" aria-label="选择模型"><option value="auto">Auto</option></select>
@@ -1617,6 +1767,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const liveProgress = document.getElementById('liveProgress');
     const liveProgressText = document.getElementById('liveProgressText');
     const pillAsk = document.getElementById('pillAsk');
+    const pillPlan = document.getElementById('pillPlan');
     const pillAgent = document.getElementById('pillAgent');
     const selChip = document.getElementById('selChip');
     const btnSend = document.getElementById('btnSend');
@@ -1649,12 +1800,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     let menuKind = '';
 
     function setMode(m) {
-      mode = m === 'agent' ? 'agent' : 'chat';
+      mode = m === 'agent' ? 'agent' : m === 'plan' ? 'plan' : 'chat';
       pillAsk.classList.toggle('active', mode === 'chat');
+      if (pillPlan) pillPlan.classList.toggle('active', mode === 'plan');
       pillAgent.classList.toggle('active', mode === 'agent');
       input.placeholder = mode === 'agent'
         ? '给 Agent 下任务… 拖文件；/ Skill；@ 引用；写后 Keep/Reject'
-        : '问 Su… 拖文件；/ Skill；@ 引用；Enter 发送';
+        : mode === 'plan'
+          ? '描述需求，一起定计划… Build 后交给 Agent 执行'
+          : '问 Su… 拖文件；/ Skill；@ 引用；Enter 发送';
     }
 
     function isImagePath(p) {
@@ -2008,6 +2162,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       openSlash(filter);
     }
     pillAsk.addEventListener('click', () => { setMode('chat'); vscode.postMessage({ type: 'setMode', mode: 'chat' }); });
+    if (pillPlan) {
+      pillPlan.addEventListener('click', () => { setMode('plan'); vscode.postMessage({ type: 'setMode', mode: 'plan' }); });
+    }
     pillAgent.addEventListener('click', () => { setMode('agent'); vscode.postMessage({ type: 'setMode', mode: 'agent' }); });
     selChip.addEventListener('click', () => {
       includeSel = !includeSel;
@@ -2085,9 +2242,53 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       btnStop.disabled = !on;
       streamHint.classList.toggle('on', on);
       pillAsk.disabled = on;
+      if (pillPlan) pillPlan.disabled = on;
       pillAgent.disabled = on;
       if (on) setLiveProgress('正在思考 / 等待模型…', true);
       else setLiveProgress('', false);
+    }
+
+    function showPlanCard(msg) {
+      clearEmpty();
+      messageCount++;
+      setLiveProgress('计划已就绪 — 可编辑后点 Build', false);
+      const card = document.createElement('div');
+      card.className = 'msg plan-card';
+      card.setAttribute('data-plan-rev', msg.revision || '');
+      const title = document.createElement('div');
+      title.className = 'plan-title';
+      title.textContent = '📋 执行计划（可编辑）';
+      const hint = document.createElement('div');
+      hint.className = 'plan-hint';
+      hint.textContent = '确认无误后点 Build：将切换到 Agent 并按此计划执行。未 Build 不会改代码。';
+      const body = document.createElement('textarea');
+      body.className = 'plan-body';
+      body.value = msg.markdown || '';
+      const actions = document.createElement('div');
+      actions.className = 'plan-actions';
+      const bBuild = document.createElement('button');
+      bBuild.type = 'button';
+      bBuild.className = 'primary';
+      bBuild.textContent = 'Build';
+      bBuild.addEventListener('click', () => {
+        if (streaming) return;
+        const md = (body.value || '').trim();
+        if (!md) {
+          hint.textContent = '计划内容不能为空。';
+          return;
+        }
+        card.classList.add('built');
+        hint.textContent = '已提交 Build → Agent 执行中…';
+        setMode('agent');
+        vscode.postMessage({ type: 'buildPlan', markdown: md });
+      });
+      actions.appendChild(bBuild);
+      card.appendChild(title);
+      card.appendChild(hint);
+      card.appendChild(body);
+      card.appendChild(actions);
+      thread.appendChild(card);
+      thread.scrollTop = thread.scrollHeight;
     }
 
     let hasWorkspace = true;
@@ -2830,6 +3031,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           }
           break;
         }
+        case 'planCard':
+          showPlanCard(msg);
+          break;
         case 'assistantDone':
         case 'stopped':
           finishAssistantMarkdown();

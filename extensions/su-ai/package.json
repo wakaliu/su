@@ -2,7 +2,7 @@
   "name": "su-ai",
   "displayName": "Su AI",
   "description": "Built-in AI assistant for su (Chat, Ghost Text, Agent + Diff).",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "publisher": "su",
   "engines": {
     "vscode": "^1.136.0"

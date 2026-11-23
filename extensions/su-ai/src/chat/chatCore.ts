@@ -6,6 +6,8 @@ export { runAskWithTools } from './askRunner';
 export { listAtMentionItems } from './atMentions';
 export { buildUserTurn, resolveDroppedUris } from './attachments';
 export type { ChatAttachment } from './attachments';
+export { PLAN_SYSTEM_PROMPT, parsePlanResponse } from './plan';
+export { runPlanWithTools } from './planRunner';
 export { renderReplyMarkdown, SU_REPLY_FORMAT_HINT } from './replyMarkdown';
 export { loadWorkspaceRulesFragment } from './rulesCatalog';
 export { listInstalledSkills, loadSkillById } from './skillsCatalog';

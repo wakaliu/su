@@ -13,9 +13,11 @@
 | `extensions/su-ai/src/openaiClient.ts` | 流式 / 非流式 / tools 调用 |
 | `extensions/su-ai/src/chat/chatViewProvider.ts` | Chat + Agent UI；IDE 侧栏与 Agent Window 共用消息/会话 |
 | `extensions/su-ai/src/chat/replyMarkdown.ts` | 答复 Markdown（标题/表格/列表/图片）渲染；注入 Webview；Chat 灯箱放大 |
-| `extensions/su-ai/src/chat/chatCore.ts` | 共享核心再导出（Ask/Agent runners、附件、Rules、@） |
-| `extensions/su-ai/src/chat/chatSessions.ts` | 多会话存储 / 迁移 |
+| `extensions/su-ai/src/chat/chatCore.ts` | 共享核心再导出（Ask/Plan/Agent runners、附件、Rules、@） |
+| `extensions/su-ai/src/chat/chatSessions.ts` | 多会话存储 / 迁移；`ChatMode` = chat \| plan \| agent；可选 `planDraft` |
 | `extensions/su-ai/src/chat/askRunner.ts` | Ask 只读 list_dir / read_file 循环 |
+| `extensions/su-ai/src/chat/plan.ts` | Plan system prompt、`<su-plan>` 解析/校验 |
+| `extensions/su-ai/src/chat/planRunner.ts` | Plan 只读工具循环（list_dir / read_file） |
 | `extensions/su-ai/src/chat/workspaceContext.ts` | 工作区快照（目录 / README / git） |
 | `extensions/su-ai/src/chat/rulesCatalog.ts` | `.su/rules` 注入 |
 | `extensions/su-ai/src/chat/atMentions.ts` | `@` 引用候选 |
@@ -30,8 +32,9 @@
 | `extensions/su-ai/src/userGuide.ts` | 打开用户手册预览 |
 | `extensions/su-ai/src/update.ts` / `version.ts` / `secrets.ts` | 更新 / 版本 / 密钥 |
 
-## 当前版本（v0.6）
+## 当前版本（v0.6.1）
 
+- **Plan 模式**：pill **Ask | Plan | Agent**；Plan 只读探查 → 可编辑计划卡 → **Build** 切 Agent 执行（见 ADR-0002）
 - **IDE Window**：经典编辑器 + 右侧 Su Chat（现状）
 - **Agent Window**：独立 OS 窗口（`su.openAgentWindow` → `moveEditorToNewWindow`）；顶栏「IDE ↗」切回；与侧栏共用会话/工作区
 - 换项目：`su.openFolderNewWindow` / `su.openFolderCurrentWindow`（Chat ⋯ 菜单）；无文件夹可纯聊天
@@ -39,7 +42,7 @@
 - v0.5 能力保留：拖图/文件、/ Skills、@、Rules、工作区快照、Ask 只读工具
 - Agent：**处理过程**进度默认展开；终端在对话区授权（允许一次 / 本会话总是允许 / 拒绝）
 - Agent：`ask_user` 反馈卡（抉择关闭=继续不扩展；建议关闭=结束任务；复杂任务可多次）
-- 验收：[docs/acceptance/v0.6.md](../acceptance/v0.6.md)；v0.5 见 [v0.5.md](../acceptance/v0.5.md)
+- 验收：[docs/acceptance/v0.6.1.md](../acceptance/v0.6.1.md)；v0.6 见 [v0.6.md](../acceptance/v0.6.md)；v0.5 见 [v0.5.md](../acceptance/v0.5.md)
 - 产品版本见 `branding/version.json`
 
 ## 禁止

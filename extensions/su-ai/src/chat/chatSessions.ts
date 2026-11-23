@@ -1,17 +1,27 @@
 import type { ChatMessage } from '../openaiClient';
+import { validatePlanMarkdown, type PlanDraft } from './plan';
 
 /** Max messages kept per session for API context + persistence. */
 export const MAX_SESSION_MESSAGES = 40;
 /** Max stored chat sessions (oldest non-active dropped). */
 export const MAX_SESSIONS = 30;
 
-export type ChatMode = 'chat' | 'agent';
+export type ChatMode = 'chat' | 'plan' | 'agent';
+
+/**
+ * Normalizes mode strings from UI / persistence.
+ */
+export function normalizeMode(value: unknown): ChatMode {
+  return value === 'plan' || value === 'agent' ? value : 'chat';
+}
 
 export interface ChatSession {
   id: string;
   title: string;
   messages: ChatMessage[];
   mode: ChatMode;
+  /** Latest plan draft for Build (session-scoped; not a disk file). */
+  planDraft?: PlanDraft;
   createdAt: number;
   updatedAt: number;
 }
@@ -34,7 +44,7 @@ export function createEmptySession(mode: ChatMode = 'chat'): ChatSession {
     id: `s_${now.toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
     title: '新对话',
     messages: [],
-    mode,
+    mode: normalizeMode(mode),
     createdAt: now,
     updatedAt: now,
   };
@@ -70,6 +80,20 @@ export function trimMessages(messages: ChatMessage[]): ChatMessage[] {
     .slice(-MAX_SESSION_MESSAGES);
 }
 
+function normalizePlanDraft(raw: unknown): PlanDraft | undefined {
+  if (!raw || typeof raw !== 'object') {
+    return undefined;
+  }
+  const o = raw as { revision?: unknown; markdown?: unknown };
+  const markdown = validatePlanMarkdown(o.markdown);
+  if (!markdown) {
+    return undefined;
+  }
+  const revision =
+    typeof o.revision === 'string' && o.revision.trim() ? o.revision.trim() : `rev_${Date.now()}`;
+  return { revision, markdown };
+}
+
 /**
  * Normalizes store shape and enforces session cap.
  */
@@ -80,14 +104,18 @@ export function normalizeStore(raw: SessionStore | undefined, fallbackMode: Chat
   }
   const sessions = raw.sessions
     .filter((s) => s && typeof s.id === 'string')
-    .map((s) => ({
-      id: s.id,
-      title: typeof s.title === 'string' && s.title.trim() ? s.title : '新对话',
-      messages: trimMessages(Array.isArray(s.messages) ? s.messages : []),
-      mode: s.mode === 'agent' ? ('agent' as const) : ('chat' as const),
-      createdAt: typeof s.createdAt === 'number' ? s.createdAt : Date.now(),
-      updatedAt: typeof s.updatedAt === 'number' ? s.updatedAt : Date.now(),
-    }))
+    .map((s) => {
+      const planDraft = normalizePlanDraft((s as ChatSession).planDraft);
+      return {
+        id: s.id,
+        title: typeof s.title === 'string' && s.title.trim() ? s.title : '新对话',
+        messages: trimMessages(Array.isArray(s.messages) ? s.messages : []),
+        mode: normalizeMode(s.mode),
+        ...(planDraft ? { planDraft } : {}),
+        createdAt: typeof s.createdAt === 'number' ? s.createdAt : Date.now(),
+        updatedAt: typeof s.updatedAt === 'number' ? s.updatedAt : Date.now(),
+      };
+    })
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .slice(0, MAX_SESSIONS);
 
