@@ -12,6 +12,8 @@ When enough is known, return a complete Markdown document between standalone <su
 export interface PlanDraft {
   revision: string;
   markdown: string;
+  /** Workspace-relative path under `.su/plans/*.plan.md` when View has opened the file. */
+  relativePath?: string;
 }
 
 /**

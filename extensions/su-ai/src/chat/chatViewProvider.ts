@@ -26,6 +26,12 @@ import {
 import { listAtMentionItems } from './atMentions';
 import { runAskWithTools } from './askRunner';
 import { parsePlanResponse, stripPlanTags, validatePlanMarkdown } from './plan';
+import {
+  isSuPlanFileUri,
+  planUriFromRelative,
+  readPlanMarkdown,
+  writePlanFile,
+} from './planFiles';
 import { runPlanWithTools } from './planRunner';
 import { renderReplyMarkdown } from './replyMarkdown';
 import { loadWorkspaceRulesFragment } from './rulesCatalog';
@@ -93,7 +99,8 @@ type WebviewToExt =
       selected: string[];
       freeText: string;
     }
-  | { type: 'buildPlan'; markdown: string };
+  | { type: 'buildPlan'; markdown: string }
+  | { type: 'viewPlan'; markdown: string };
 
 type ExtToWebview =
   | {
@@ -134,6 +141,7 @@ type ExtToWebview =
   | { type: 'tool'; text: string }
   | { type: 'progress'; text: string }
   | { type: 'planCard'; revision: string; markdown: string }
+  | { type: 'planCardSync'; revision: string; markdown: string }
   | {
       type: 'terminalPermission';
       id: string;
@@ -225,6 +233,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         ) {
           void this.pushStatus();
         }
+      }),
+    );
+    // Plan View: keep chat card in sync when user saves `.su/plans/*.plan.md`.
+    this.context.subscriptions.push(
+      vscode.workspace.onDidSaveTextDocument((doc) => {
+        void this.onPlanFileSaved(doc);
       }),
     );
   }
@@ -570,6 +584,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         break;
       case 'buildPlan':
         await this.buildPlan(raw.markdown);
+        break;
+      case 'viewPlan':
+        await this.viewPlan(raw.markdown);
         break;
       case 'listSkills':
         this.post({
@@ -1037,10 +1054,78 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   /**
+   * View: write/update `.su/plans/*.plan.md` and open it in the editor (Cursor-like).
+   */
+  private async viewPlan(markdown: string): Promise<void> {
+    const body = validatePlanMarkdown(markdown);
+    if (!body) {
+      void vscode.window.showWarningMessage('计划内容为空或过长，无法打开。');
+      return;
+    }
+    const s = this.activeSession;
+    const revision = s.planDraft?.revision || `rev_${Date.now()}`;
+    try {
+      const { uri, relativePath } = await writePlanFile({
+        markdown: body,
+        revision,
+        existingRelativePath: s.planDraft?.relativePath,
+      });
+      s.planDraft = { revision, markdown: body, relativePath };
+      s.updatedAt = Date.now();
+      await this.persistStore();
+      const doc = await vscode.workspace.openTextDocument(uri);
+      await vscode.window.showTextDocument(doc, {
+        preview: false,
+        viewColumn: vscode.ViewColumn.One,
+        preserveFocus: false,
+      });
+      this.post({ type: 'progress', text: `已在编辑器打开计划：${relativePath}` });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      void vscode.window.showWarningMessage(message);
+    }
+  }
+
+  /**
+   * Sync chat plan card when a tracked plan file is saved in the editor.
+   */
+  private async onPlanFileSaved(doc: vscode.TextDocument): Promise<void> {
+    if (!isSuPlanFileUri(doc.uri)) {
+      return;
+    }
+    const s = this.activeSession;
+    const tracked = s.planDraft?.relativePath
+      ? planUriFromRelative(s.planDraft.relativePath)
+      : undefined;
+    if (!tracked || tracked.toString() !== doc.uri.toString()) {
+      return;
+    }
+    const body = validatePlanMarkdown(doc.getText());
+    if (!body) {
+      return;
+    }
+    s.planDraft = {
+      revision: s.planDraft?.revision || `rev_${Date.now()}`,
+      markdown: body,
+      relativePath: s.planDraft?.relativePath,
+    };
+    s.updatedAt = Date.now();
+    await this.persistStore();
+    this.post({
+      type: 'planCardSync',
+      revision: s.planDraft.revision,
+      markdown: body,
+    });
+  }
+
+  /**
    * Build: switch to Agent and execute the current plan markdown.
    */
   private async buildPlan(markdown: string): Promise<void> {
-    const body = validatePlanMarkdown(markdown);
+    const s = this.activeSession;
+    // Prefer open editor buffer / disk for the Viewed plan file so unsaved edits still apply when possible.
+    const fromFile = await readPlanMarkdown(s.planDraft?.relativePath, markdown);
+    const body = validatePlanMarkdown(fromFile) || validatePlanMarkdown(markdown);
     if (!body) {
       void vscode.window.showWarningMessage('计划内容为空或过长，无法 Build。');
       return;
@@ -1049,10 +1134,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       void vscode.window.showWarningMessage('当前正在生成，请先停止后再 Build。');
       return;
     }
-    const s = this.activeSession;
-    s.planDraft = { revision: `rev_${Date.now()}`, markdown: body };
+    s.planDraft = {
+      revision: `rev_${Date.now()}`,
+      markdown: body,
+      ...(s.planDraft?.relativePath ? { relativePath: s.planDraft.relativePath } : {}),
+    };
     s.updatedAt = Date.now();
     await this.persistStore();
+    this.post({ type: 'planCardSync', revision: s.planDraft.revision, markdown: body });
     await this.setMode('agent');
     const prompt =
       '请严格按照以下计划执行（不要重新大幅改规划，除非发现问题）。完成后简要总结。\n\n' +
@@ -2260,12 +2349,25 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       title.textContent = '📋 执行计划（可编辑）';
       const hint = document.createElement('div');
       hint.className = 'plan-hint';
-      hint.textContent = '确认无误后点 Build：将切换到 Agent 并按此计划执行。未 Build 不会改代码。';
+      hint.textContent = 'View 可在编辑器打开 .su/plans 计划文件；确认后点 Build 切到 Agent 执行。未 Build 不会改代码。';
       const body = document.createElement('textarea');
       body.className = 'plan-body';
       body.value = msg.markdown || '';
       const actions = document.createElement('div');
       actions.className = 'plan-actions';
+      const bView = document.createElement('button');
+      bView.type = 'button';
+      bView.textContent = 'View';
+      bView.title = '在编辑器打开临时 Markdown 计划（.su/plans）';
+      bView.addEventListener('click', () => {
+        const md = (body.value || '').trim();
+        if (!md) {
+          hint.textContent = '计划内容不能为空。';
+          return;
+        }
+        hint.textContent = '正在打开计划文件…';
+        vscode.postMessage({ type: 'viewPlan', markdown: md });
+      });
       const bBuild = document.createElement('button');
       bBuild.type = 'button';
       bBuild.className = 'primary';
@@ -2282,6 +2384,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         setMode('agent');
         vscode.postMessage({ type: 'buildPlan', markdown: md });
       });
+      actions.appendChild(bView);
       actions.appendChild(bBuild);
       card.appendChild(title);
       card.appendChild(hint);
@@ -3034,6 +3137,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         case 'planCard':
           showPlanCard(msg);
           break;
+        case 'planCardSync': {
+          const cards = thread.querySelectorAll('.plan-card:not(.built)');
+          const card = cards[cards.length - 1];
+          if (card) {
+            const ta = card.querySelector('textarea.plan-body');
+            if (ta) ta.value = msg.markdown || '';
+            if (msg.revision) card.setAttribute('data-plan-rev', msg.revision);
+            const hintEl = card.querySelector('.plan-hint');
+            if (hintEl) hintEl.textContent = '计划已从编辑器同步；确认后点 Build。';
+          }
+          break;
+        }
         case 'assistantDone':
         case 'stopped':
           finishAssistantMarkdown();

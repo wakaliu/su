@@ -84,14 +84,20 @@ function normalizePlanDraft(raw: unknown): PlanDraft | undefined {
   if (!raw || typeof raw !== 'object') {
     return undefined;
   }
-  const o = raw as { revision?: unknown; markdown?: unknown };
+  const o = raw as { revision?: unknown; markdown?: unknown; relativePath?: unknown };
   const markdown = validatePlanMarkdown(o.markdown);
   if (!markdown) {
     return undefined;
   }
   const revision =
     typeof o.revision === 'string' && o.revision.trim() ? o.revision.trim() : `rev_${Date.now()}`;
-  return { revision, markdown };
+  const relativePath =
+    typeof o.relativePath === 'string' &&
+    o.relativePath.replace(/\\/g, '/').startsWith('.su/plans/') &&
+    o.relativePath.replace(/\\/g, '/').endsWith('.plan.md')
+      ? o.relativePath.replace(/\\/g, '/')
+      : undefined;
+  return { revision, markdown, ...(relativePath ? { relativePath } : {}) };
 }
 
 /**

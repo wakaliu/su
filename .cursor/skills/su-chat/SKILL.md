@@ -21,7 +21,7 @@ v0.2 起侧栏 Webview `su.chat`；v0.5 拖图/文件、/ Skills、Rules、@；v
 - `su.openAgentWindow` / `su.openIdeWindow`：独立 OS 对话窗 ⇄ 经典 IDE（共用会话；非微软 Sessions）
 - `su.openFolderNewWindow` / `su.openFolderCurrentWindow`：换项目；无工作区可纯聊
 - pill：**Ask | Plan | Agent**（`ChatMode` = `chat` \| `plan` \| `agent`）；会话可存 `planDraft`
-- Plan：只读 list/read；`<su-plan>` 解析后亮计划卡；**Build** → `setMode('agent')` + Agent 执行；未 Build 不写文件
+- Plan：只读 list/read；`<su-plan>` 解析后亮计划卡；**View** → `.su/plans/*.plan.md` 编辑器打开（保存回写）；**Build** → `setMode('agent')` + Agent 执行；未 Build 不改业务代码
 - 拖入图片 → 多模态 `image_url`；拖入文件 → 文本上下文；侧栏/标签需 **Shift** 或右键 `su.addToChat`
 - 图片点击灯箱放大（composer / 用户消息 / Markdown `![]()`）；Esc 关闭
 - `/` Skills；`@` 文件/选区；`.su/rules` + `su.rules.enabled`

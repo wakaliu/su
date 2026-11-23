@@ -17,6 +17,7 @@
 | `extensions/su-ai/src/chat/chatSessions.ts` | 多会话存储 / 迁移；`ChatMode` = chat \| plan \| agent；可选 `planDraft` |
 | `extensions/su-ai/src/chat/askRunner.ts` | Ask 只读 list_dir / read_file 循环 |
 | `extensions/su-ai/src/chat/plan.ts` | Plan system prompt、`<su-plan>` 解析/校验 |
+| `extensions/su-ai/src/chat/planFiles.ts` | `.su/plans/*.plan.md` 读写与 View 打开 |
 | `extensions/su-ai/src/chat/planRunner.ts` | Plan 只读工具循环（list_dir / read_file） |
 | `extensions/su-ai/src/chat/workspaceContext.ts` | 工作区快照（目录 / README / git） |
 | `extensions/su-ai/src/chat/rulesCatalog.ts` | `.su/rules` 注入 |
@@ -34,7 +35,7 @@
 
 ## 当前版本（v0.6.1）
 
-- **Plan 模式**：pill **Ask | Plan | Agent**；Plan 只读探查 → 可编辑计划卡 → **Build** 切 Agent 执行（见 ADR-0002）
+- **Plan 模式**：pill **Ask | Plan | Agent**；Plan 只读探查 → 可编辑计划卡 → **View**（`.su/plans/*.plan.md`）/ **Build** 切 Agent 执行（见 ADR-0002）
 - **IDE Window**：经典编辑器 + 右侧 Su Chat（现状）
 - **Agent Window**：独立 OS 窗口（`su.openAgentWindow` → `moveEditorToNewWindow`）；顶栏「IDE ↗」切回；与侧栏共用会话/工作区
 - 换项目：`su.openFolderNewWindow` / `su.openFolderCurrentWindow`（Chat ⋯ 菜单）；无文件夹可纯聊天
