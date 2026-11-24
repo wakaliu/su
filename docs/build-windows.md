@@ -31,12 +31,21 @@
 # 2. 安装依赖并编译（esbuild 快速路径，约 15-30 分钟）
 .\scripts\build-win.ps1
 
-# 3. 打包 zip（便携包）
+# 3. 打包：便携 zip + Inno UserSetup（固定安装路径）
 .\scripts\package-win.ps1
 ```
 
-产物目录：`out/win32-x64/`；zip：`out/su-win32-x64-*.zip`。
-GitHub Actions：workflow `build-win`（手动或 push develop）。成功后会自动发 **Pre-release**（tag 形如 `v0.1.0-dev.YYYYMMDD.短sha`，资产为 zip）；正式版用 `release-win` + `v*` tag，见 [updates.md](updates.md)。
+产物：
+
+| 文件 | 说明 |
+|------|------|
+| `out/su-win32-x64-*-UserSetup.exe` | **推荐**。Inno 用户安装器，默认装到 `%LOCALAPPDATA%\Programs\su`（固定路径，便于安全软件加白） |
+| `out/su-win32-x64-*-*.zip` | 便携包；若使用请始终解压到同一目录，勿每次换时间戳文件夹名 |
+| `out/win32-x64/` | 解包目录（含 `INSTALL-WINDOWS.txt`） |
+
+仅要 zip 时：`$env:SU_SKIP_SETUP='1'; .\scripts\package-win.ps1`。
+
+GitHub Actions：workflow `build-win`（手动或 push develop）。成功后会自动发 **Pre-release**（tag 形如 `v0.1.0-dev.YYYYMMDD.短sha`，资产为 **UserSetup.exe + zip**）；正式版用 `release-win` + `v*` tag，见 [updates.md](updates.md)。
 
 若需回退旧管线（gulp-tsb，约 2 小时），设环境变量后构建：
 

@@ -28,7 +28,7 @@ macOS 包为**未签名**内部分发；下载后需手动打开 DMG / 右键打
 workflow **`build-win`** 在 `develop` 推送（或手动 Run）且打包成功后，会自动创建：
 
 - **Pre-release** tag：`v{version}-dev.{YYYYMMDD}.{短sha}`（例：`v0.1.0-dev.20260920.d028d63`）
-- 资产：`out/su-win32-x64-*.zip`（挂在 Release，**不再**上传 Actions Artifact）
+- 资产：`out/su-win32-x64-*-UserSetup.exe`（默认装 `%LOCALAPPDATA%\Programs\su`）+ `out/su-win32-x64-*.zip`（挂在 Release，**不再**上传 Actions Artifact）
 
 默认用户**不会**收到这些更新（`su.update.includePrerelease=false`）。内测可在设置中打开该开关。
 
@@ -38,7 +38,7 @@ workflow **`build-win`** 在 `develop` 推送（或手动 Run）且打包成功�
 
 1. 修改 `branding/version.json` 的 `version`（如 `0.1.1`）
 2. 提交并 `git tag v0.1.1 && git push origin v0.1.1`
-3. 运行 workflow **`release-win`**（Windows zip）与/或 **`release-mac`**（双架构 DMG），或手动把资产挂到该 Release
+3. 运行 workflow **`release-win`**（Windows UserSetup.exe + zip）与/或 **`release-mac`**（双架构 DMG），或手动把资产挂到该 Release
 
 ### macOS 内测 Pre-release
 

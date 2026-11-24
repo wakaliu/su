@@ -148,9 +148,10 @@ su 使用**同一套** Base URL + API Key，可配置多个模型 id：
 
 ---
 
-## 10. 检查更新
+## 10. 安装与检查更新
 
-- 菜单 **帮助 → Su → 检查更新**，或命令 `Su: 检查更新`。
+- **推荐安装**：运行 `su-win32-x64-*-UserSetup.exe`，默认装到 `%LOCALAPPDATA%\Programs\su`（固定路径）。勿每次把便携 zip 解压到带时间戳的新文件夹（安全软件易反复拦截）。
+- 菜单 **帮助 → Su → 检查更新**，或命令 `Su: 检查更新`（优先下载 UserSetup）。
 - 更新源为 GitHub Releases（默认仓库可在 `Su › Update: Repo` 修改）。
 - 若要接收开发预览版，打开 `Su › Update: Include Prerelease`。
 

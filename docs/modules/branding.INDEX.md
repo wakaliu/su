@@ -20,7 +20,7 @@
 
 - `nameShort` / `nameLong` / `applicationName` → su
 - `dataFolderName` → `.su`
-- `win32MutexName` 等 Windows 标识避免与 Code 冲突
+- `win32MutexName` / 独立 `win32*AppId` 等 Windows 标识避免与 Code - OSS 冲突；UserSetup 默认装 `%LOCALAPPDATA%\Programs\su`
 - `darwinBundleIdentifier` / `darwinBundleDisplayName` / `darwinBundleName` → macOS 标识
 - `extensionsGallery` → Open VSX（若启用市场）
 - `builtInExtensions` / 注入路径由 bootstrap 将 su-ai 拷入 `extensions/`

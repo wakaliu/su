@@ -280,7 +280,10 @@ function scoreWindowsAsset(n: string): number {
   if (n.endsWith('.exe') || n.endsWith('.msi')) {
     score += 2;
   }
-  if (n.includes('setup') || n.includes('installer') || n.includes('user')) {
+  // Prefer Inno UserSetup (fixed %LOCALAPPDATA%\Programs\su) over portable zip.
+  if (n.includes('usersetup') || n.includes('user-setup')) {
+    score += 4;
+  } else if (n.includes('setup') || n.includes('installer') || n.includes('user')) {
     score += 1;
   }
   if (n.includes('darwin') || n.includes('linux') || n.includes('arm64')) {
