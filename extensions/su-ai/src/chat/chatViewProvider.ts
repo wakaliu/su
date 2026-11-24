@@ -288,33 +288,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         finish('deny');
       }, PERM_WAIT_MS);
 
-      // In-chat card (may be missed if webview scrolled / not focused).
+      // Only the in-chat permission card (no parallel VS Code toast — redundant UX).
       this.terminalPermWaiters.set(id, finish);
       this.post({ type: 'terminalPermission', id, command, readonlyGit });
-
-      // Parallel VS Code notification with real buttons — first click wins.
-      // Non-modal so Chat stays usable; detail shows the command.
-      void (async () => {
-        const buttons = readonlyGit
-          ? (['允许一次', '本会话总是允许', '拒绝'] as const)
-          : (['允许一次', '本会话总是允许', '拒绝'] as const);
-        const pick = await vscode.window.showWarningMessage(
-          `Su Agent 请求执行终端命令：\n${preview}`,
-          { modal: false, detail: '也可在 Chat 授权卡片中选择。写文件仍走 Keep/Reject。' },
-          ...buttons,
-        );
-        if (settled) {
-          return;
-        }
-        if (pick === '本会话总是允许') {
-          finish('allow_session');
-        } else if (pick === '允许一次') {
-          finish('allow_once');
-        } else if (pick === '拒绝') {
-          finish('deny');
-        }
-        // Dismissing the toast without a button does nothing — wait for card / timeout.
-      })();
     });
   }
 
