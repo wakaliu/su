@@ -22,6 +22,14 @@ Runner：`macos-15` → arm64；`macos-15-intel` → x64（`macos-14` / `macos-1
 
 产物名示例：`su-darwin-arm64-0.4.1-*.dmg`、`su-darwin-x64-0.4.1-*.dmg`。
 
+### npm 网络（`ETIMEDOUT`）
+
+Mac CI 的 `vendor/vscode` `npm ci` 偶发连不上 `registry.npmjs.org`（Win 成功、Mac 失败多半是这类）。处理：
+
+- Workflow 默认 `SU_NPM_REGISTRY=https://registry.npmmirror.com`，并拉长 `npm_config_fetch_timeout`
+- `build-mac.ps1` 对 `npm ci` **最多重试 5 次**；失败会清掉半残 `node_modules` 再试，必要时在镜像 / 官方源间切换
+- 本机若要强制官方源：`export SU_NPM_REGISTRY=https://registry.npmjs.org`
+
 ## 本机 Mac（可选）
 
 ```bash

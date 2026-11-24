@@ -37,6 +37,64 @@ function Invoke-Gulp {
   Invoke-Native node --experimental-strip-types "--max-old-space-size=$heapMb" ./node_modules/gulp/bin/gulp.js @Tasks
 }
 
+# npm ci with long fetch timeout, retries, and optional registry mirror.
+# Mac CI often hits ETIMEDOUT against registry.npmjs.org during vscode postinstall.
+function Invoke-NpmCiWithRetry {
+  param([int]$MaxAttempts = 5)
+
+  # Prefer env over project .npmrc quirks for network resilience.
+  if (-not $env:npm_config_fetch_retries) { $env:npm_config_fetch_retries = '5' }
+  if (-not $env:npm_config_fetch_retry_mintimeout) { $env:npm_config_fetch_retry_mintimeout = '20000' }
+  if (-not $env:npm_config_fetch_retry_maxtimeout) { $env:npm_config_fetch_retry_maxtimeout = '120000' }
+  if (-not $env:npm_config_fetch_timeout) { $env:npm_config_fetch_timeout = '600000' }
+
+  $mirror = 'https://registry.npmmirror.com'
+  $official = 'https://registry.npmjs.org'
+  if ($env:SU_NPM_REGISTRY) {
+    $env:npm_config_registry = $env:SU_NPM_REGISTRY.Trim()
+  } elseif ($env:GITHUB_ACTIONS -eq 'true' -or $env:CI -eq 'true') {
+    # CI default: npmmirror (override with SU_NPM_REGISTRY=https://registry.npmjs.org).
+    $env:npm_config_registry = $mirror
+  }
+  if ($env:npm_config_registry) {
+    Write-Host "==> npm registry=$($env:npm_config_registry) fetch-timeout=$($env:npm_config_fetch_timeout)ms retries=$MaxAttempts"
+  }
+
+  $useLock = Test-Path 'package-lock.json'
+  for ($i = 1; $i -le $MaxAttempts; $i++) {
+    try {
+      if ($useLock) {
+        Invoke-Native npm ci
+      } else {
+        Invoke-Native npm install
+      }
+      return
+    } catch {
+      Write-Warning "==> npm attempt $i/$MaxAttempts failed: $_"
+      if ($i -ge $MaxAttempts) {
+        throw
+      }
+      # After first failure on official registry, fall back to mirror for remaining tries.
+      $cur = "$($env:npm_config_registry)"
+      if ($cur -notlike '*npmmirror*' -and -not $env:SU_NPM_REGISTRY) {
+        $env:npm_config_registry = $mirror
+        Write-Host "==> fallback npm registry=$($env:npm_config_registry)"
+      } elseif ($i -eq 2 -and $cur -like '*npmmirror*' -and -not $env:SU_NPM_REGISTRY) {
+        # Mirror also flaky: try official once before more mirror retries.
+        $env:npm_config_registry = $official
+        Write-Host "==> alternate npm registry=$($env:npm_config_registry)"
+      }
+      if (Test-Path 'node_modules') {
+        Write-Host '==> removing partial node_modules before retry'
+        Remove-Item -Recurse -Force 'node_modules' -ErrorAction SilentlyContinue
+      }
+      $sleepSec = [Math]::Min(120, 15 * $i)
+      Write-Host "==> sleep ${sleepSec}s then retry npm"
+      Start-Sleep -Seconds $sleepSec
+    }
+  }
+}
+
 function Ensure-DarwinIcns {
   $icns = Join-Path $Root 'branding/icons/darwin/code.icns'
   if (Test-Path $icns) {
@@ -138,11 +196,7 @@ try {
   $depsOk = (Test-Path 'node_modules/.bin/npm-run-all2') -or (Test-Path 'node_modules/.bin/gulp')
   if (-not $depsOk) {
     Write-Host "==> npm ci (full vscode deps; may take 10-40+ minutes)"
-    if (Test-Path 'package-lock.json') {
-      Invoke-Native npm ci
-    } else {
-      Invoke-Native npm install
-    }
+    Invoke-NpmCiWithRetry -MaxAttempts 5
   } else {
     Write-Host "==> node_modules looks complete; skip npm ci"
   }

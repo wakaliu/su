@@ -32,6 +32,10 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       SU_NODE_HEAP_MB: '8192'
       SU_DARWIN_ARCH: ${{ matrix.arch }}
+      # Mitigate registry.npmjs.org ETIMEDOUT on macos runners (override via repo variable if needed).
+      SU_NPM_REGISTRY: https://registry.npmmirror.com
+      npm_config_fetch_retries: '5'
+      npm_config_fetch_timeout: '600000'
     steps:
       - uses: actions/checkout@v4
         with:
