@@ -23,7 +23,8 @@
 | `extensions/su-ai/src/chat/rulesCatalog.ts` | `.su/rules` 注入 |
 | `extensions/su-ai/src/chat/atMentions.ts` | `@` 引用候选 |
 | `extensions/su-ai/src/ghostText.ts` | Ghost Text |
-| `extensions/su-ai/src/agent/agentRunner.ts` | Agent 工具循环 |
+| `extensions/su-ai/src/agent/agentRunner.ts` | Agent 工具循环、阶段/结束原因、长任务保护 |
+| `extensions/su-ai/src/agent/progressGuard.ts` | 重复工具调用与无进展检测 |
 | `extensions/su-ai/src/agent/tools.ts` | 工作区工具；终端对话区授权（一次/本会话总是/拒绝） |
 | `extensions/su-ai/src/agent/diffReview.ts` | Keep / Reject |
 | `extensions/su-ai/src/workbench.ts` | Sessions 窗跳回经典编辑器 |

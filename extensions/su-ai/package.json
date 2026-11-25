@@ -345,7 +345,26 @@
           "default": 0,
           "minimum": 0,
           "maximum": 10000,
-          "description": "Agent 单轮最大工具调用步数。0 表示不限制（可用 Esc / 停止 中断）。"
+          "description": "Agent 单轮最大工具调用步数。0 表示兼容旧行为（仍受重复/无进展保护，可用 Esc 停止）。"
+        },
+        "su.agent.maxAutoContinues": {
+          "type": "number",
+          "default": 8,
+          "minimum": 0,
+          "maximum": 20,
+          "description": "计划执行时模型文本收尾后的最大自动续跑次数。"
+        },
+        "su.agent.maxNoProgressRounds": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 20,
+          "description": "连续无有效进展后暂停 Agent 的轮次阈值。"
+        },
+        "su.agent.detectRepeatedTools": {
+          "type": "boolean",
+          "default": true,
+          "description": "检测重复工具调用并在无进展时暂停 Agent。"
         },
         "su.agent.enableTerminal": {
           "type": "boolean",

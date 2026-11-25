@@ -9,6 +9,8 @@ export const PLAN_SYSTEM_PROMPT = `You are in Su Plan mode. Read relevant worksp
 Discuss the user's goal, scope and acceptance criteria. When a consequential requirement or technical decision is unclear, finish this turn with focused questions and practical options, explaining tradeoffs and your recommendation. Wait for the user before drafting a plan. Do not ask about details you can verify by reading files.
 When enough is known, return a complete Markdown document between standalone <su-plan> and </su-plan> lines (no outer code fence wrapping the tags). Include title, goal, scope and exclusions, technical approach, ordered actionable steps with relevant paths and dependencies, tests and measurable acceptance criteria, risks and rollback. Use the user's language. For revisions return the complete updated document, not a patch; ask first if a new unresolved decision blocks it. Only the user can approve execution by pressing Build.`;
 
+export { parsePlanSteps, parseAcceptanceCriteria, getPlanProgress, type PlanItem } from './planTracking';
+
 export interface PlanDraft {
   revision: string;
   markdown: string;

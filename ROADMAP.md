@@ -18,7 +18,11 @@ Plan 见 `docs/acceptance/v0.6.1.md`。
 | v0.4.1 | Chat 信息架构 / Diff 入口 / 快捷键抛光 | 已完成（见 `docs/acceptance/v0.4.1.md`） |
 | v0.5 | 轻量上下文、Rules、拖图/拖文件、/ Skills、@ | 功能完成（验收见 `docs/acceptance/v0.5.md`） |
 | v0.6 | 自研 Agent Window（独立 OS 窗）⇄ IDE Window（非微软 Sessions） | 功能完成（见 `docs/acceptance/v0.6.md`） |
-| v0.6.1 | Plan：只读讨论 → 可编辑 Markdown 计划 → Build 交给 Agent | 进行中（见 `docs/acceptance/v0.6.1.md`） |
+| v0.6.1 | Plan：只读讨论 → 可编辑 Markdown 计划 → Build 交给 Agent；长任务稳定性与过程 UX | 阶段一实现完成，待本地编译/IDE 人工验收（见 `docs/acceptance/v0.6.1.md`） |
+| v0.7 | 上下文与代码理解：忽略规则、增量摘要、符号搜索、上下文来源透明 | 规划中 |
+| v0.8 | 多文件 Diff、Checkpoint、冲突提示与任务回滚 | 规划中 |
+| v0.9 | 后台任务、会话恢复、有限重试 | 规划中 |
+| v1.0 | 性能指标、本地诊断与隐私安全观测 | 规划中 |
 
 ## 规则
 

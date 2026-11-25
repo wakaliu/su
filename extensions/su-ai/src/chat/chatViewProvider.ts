@@ -25,7 +25,7 @@ import {
 } from './attachments';
 import { listAtMentionItems } from './atMentions';
 import { runAskWithTools } from './askRunner';
-import { parsePlanResponse, stripPlanTags, validatePlanMarkdown } from './plan';
+import { getPlanProgress, parsePlanResponse, stripPlanTags, validatePlanMarkdown } from './plan';
 import {
   isSuPlanFileUri,
   planUriFromRelative,
@@ -1110,6 +1110,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       void vscode.window.showWarningMessage('当前正在生成，请先停止后再 Build。');
       return;
     }
+    const planProgress = getPlanProgress(body);
+    this.post({ type: 'progress', text: `计划已 Build：${planProgress.completed}/${planProgress.total || '未知'} 项已标记完成${planProgress.next ? ` · 下一项 ${planProgress.next.id}` : ''}` });
     s.planDraft = {
       revision: `rev_${Date.now()}`,
       markdown: body,
@@ -1300,7 +1302,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             assistant = assistant ? `${assistant}\n${ev.text}` : ev.text;
             this.post({ type: 'assistantDelta', text: ev.text });
           } else if (ev.type === 'done') {
-            if (!assistant && ev.summary) {
+            this.activeSession.agentState = { phase: ev.progress?.phase || (ev.reason === 'completed' ? 'completed' : 'paused'), reason: ev.reason, summary: ev.summary, updatedAt: Date.now(), toolSteps: ev.progress?.toolSteps };
+            void this.persistStore();
+            if (!assistant) {
               assistant = ev.summary;
               this.post({ type: 'assistantDelta', text: ev.summary });
             }

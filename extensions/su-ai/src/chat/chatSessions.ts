@@ -22,6 +22,8 @@ export interface ChatSession {
   mode: ChatMode;
   /** Latest plan draft for Build (session-scoped; not a disk file). */
   planDraft?: PlanDraft;
+  /** Last execution summary; persisted so interrupted tasks are explainable. */
+  agentState?: { phase: string; reason?: string; summary: string; updatedAt: number; toolSteps?: number };
   createdAt: number;
   updatedAt: number;
 }
@@ -112,12 +114,17 @@ export function normalizeStore(raw: SessionStore | undefined, fallbackMode: Chat
     .filter((s) => s && typeof s.id === 'string')
     .map((s) => {
       const planDraft = normalizePlanDraft((s as ChatSession).planDraft);
+      const rawState = (s as ChatSession).agentState;
+      const agentState = rawState && typeof rawState === 'object' && typeof rawState.summary === 'string'
+        ? { phase: String(rawState.phase || 'paused'), reason: rawState.reason ? String(rawState.reason) : undefined, summary: rawState.summary, updatedAt: Number(rawState.updatedAt) || Date.now(), toolSteps: Number(rawState.toolSteps) || 0 }
+        : undefined;
       return {
         id: s.id,
         title: typeof s.title === 'string' && s.title.trim() ? s.title : '新对话',
         messages: trimMessages(Array.isArray(s.messages) ? s.messages : []),
         mode: normalizeMode(s.mode),
         ...(planDraft ? { planDraft } : {}),
+        ...(agentState ? { agentState } : {}),
         createdAt: typeof s.createdAt === 'number' ? s.createdAt : Date.now(),
         updatedAt: typeof s.updatedAt === 'number' ? s.updatedAt : Date.now(),
       };

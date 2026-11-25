@@ -79,7 +79,7 @@ su 使用**同一套** Base URL + API Key，可配置多个模型 id：
 2. 底部 **Ask / Plan / Agent** pill：
    - **Ask**：问答与只读浏览（目录/README/打开文件/git；`list_dir` / `read_file`）。单轮最多 `su.ask.maxSteps`（默认 100）。
    - **Plan**：只读探查并讨论需求；清晰后产出可编辑 **执行计划** 卡片。点 **Build** 才切到 Agent 按计划执行；未 Build 不会改代码。
-   - **Agent**：改文件 / 跑终端（`Ctrl+I`）。默认不限制工具步数（`su.agent.maxSteps=0`；可用 Esc 停止）。
+   - **Agent**：改文件 / 跑终端（`Ctrl+I`）。兼容 `su.agent.maxSteps=0`，但仍启用重复调用/无进展保护；可用 Esc 停止。
    助手答复支持醒目标题、Markdown 表格，以及分区图标（如 🔬🗺️⚠️▶️）。
 3. 需要时点 **选区** chip，把编辑器选中代码一并发送；输入 `@` 可选文件/选区。
 4. Enter 发送，Shift+Enter 换行；生成中可点 **停止** 或按 `Esc`。
@@ -118,7 +118,10 @@ su 使用**同一套** Base URL + API Key，可配置多个模型 id：
 
 相关设置：
 
-- `Su › Agent: Max Steps`：单轮最大工具步数（`0`=不限制，默认）  
+- `Su › Agent: Max Steps`：单轮最大工具步数（`0`=兼容旧行为，但仍受保护）
+- `Su › Agent: Max Auto Continues`：计划自动续跑次数（默认 8）
+- `Su › Agent: Max No Progress Rounds`：连续无进展暂停阈值（默认 3）
+- `Su › Agent: Detect Repeated Tools`：启用重复工具检测
 - `Su › Ask: Max Steps`：Ask 只读工具步数（默认 100）  
 
 - `Su › Agent: Enable Terminal`：是否允许 `run_terminal`（仍需确认）
