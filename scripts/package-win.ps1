@@ -49,15 +49,18 @@ function Invoke-Gulp {
   Invoke-Native node --experimental-strip-types "--max-old-space-size=$heapMb" .\node_modules\gulp\bin\gulp.js @Tasks
 }
 
-# Upstream gulp typically writes to .build/ or ../VSCode-win32-x64 relative to vscode
+# Upstream gulp typically writes to .build/ or ../VSCode-win32-x64 relative to vscode.
+# Wrap pipeline in @() so a single match stays a 1-element array (else [0] is first char).
 $Candidates = @(
-  (Join-Path $Root 'VSCode-win32-x64'),
-  (Join-Path $Vendor '..\VSCode-win32-x64' | Resolve-Path -ErrorAction SilentlyContinue),
-  (Join-Path $Vendor '.build\win32-x64'),
-  (Join-Path $Vendor '..\su-win32-x64' | Resolve-Path -ErrorAction SilentlyContinue)
-) | Where-Object { $_ -and (Test-Path $_) }
+  @(
+    (Join-Path $Root 'VSCode-win32-x64'),
+    (Join-Path $Vendor '..\VSCode-win32-x64' | Resolve-Path -ErrorAction SilentlyContinue),
+    (Join-Path $Vendor '.build\win32-x64'),
+    (Join-Path $Vendor '..\su-win32-x64' | Resolve-Path -ErrorAction SilentlyContinue)
+  ) | Where-Object { $_ -and (Test-Path $_) }
+)
 
-if (-not $Candidates -or $Candidates.Count -eq 0) {
+if ($Candidates.Count -eq 0) {
   throw @"
 No Windows build folder found.
 Expected one of: VSCode-win32-x64 next to vendor, or gulp output under vendor/.build
@@ -124,20 +127,25 @@ try {
   Pop-Location
 }
 
+# @() after Where-Object: one hit must not collapse to a bare string ([0] → 'D').
 $SetupCandidates = @(
-  (Join-Path $Vendor '.build\win32-x64\user-setup\VSCodeSetup.exe'),
-  (Join-Path $Vendor '.build\win32-x64\user-setup\suSetup.exe')
-) | Where-Object { Test-Path $_ }
+  @(
+    (Join-Path $Vendor '.build\win32-x64\user-setup\VSCodeSetup.exe'),
+    (Join-Path $Vendor '.build\win32-x64\user-setup\suSetup.exe')
+  ) | Where-Object { Test-Path $_ }
+)
 
-if (-not $SetupCandidates -or $SetupCandidates.Count -eq 0) {
+if ($SetupCandidates.Count -eq 0) {
   Get-ChildItem -Path (Join-Path $Vendor '.build\win32-x64') -Recurse -Filter '*.exe' -ErrorAction SilentlyContinue |
     Select-Object -First 20 FullName |
     ForEach-Object { Write-Host "  found: $($_.FullName)" }
   throw 'Inno User Setup exe not found under vendor/vscode/.build/win32-x64/user-setup/'
 }
 
-$SetupSrc = $SetupCandidates[0]
+$SetupSrc = [string]$SetupCandidates[0]
+Write-Host "==> copying setup from $SetupSrc"
+New-Item -ItemType Directory -Force -Path (Split-Path $SetupDest) | Out-Null
 if (Test-Path $SetupDest) { Remove-Item -Force $SetupDest }
-Copy-Item -Force $SetupSrc $SetupDest
+Copy-Item -LiteralPath $SetupSrc -Destination $SetupDest -Force
 Write-Host "==> packaged setup: $SetupDest"
 Write-Host '    default install dir: %LOCALAPPDATA%\Programs\su'
